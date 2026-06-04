@@ -14,8 +14,8 @@ st.set_page_config(
 
 # --- 2. Secure Database Connection Layer ---
 engine = None
-if "connections" in st.secrets and "postgresql" in st.secrets["connections"]:
-    db_url = st.secrets["connections"]["url"]
+if "SUPABASE_URL" in st.secrets:
+    db_url = st.secrets["SUPABASE_URL"]
     
     # Fix standard dialect naming quirk for SQLAlchemy if needed
     if db_url.startswith("postgres://"):
@@ -35,7 +35,6 @@ else:
     st.sidebar.warning("⚠️ Database credentials missing from Secrets.")
 
 # --- 3. Mock Supplier API Data ---
-# In production, these would be direct API calls fetching live vendor details
 MOCK_SUPPLIERS = {
     "Supplier Alpha": {"cement": 10.50, "drywall": 15.00, "gravel": 32.00},
     "Supplier Beta": {"cement": 11.00, "drywall": 14.20, "gravel": 35.50},
@@ -66,10 +65,7 @@ if role == "👤 Customer Portal":
         else:
             with st.spinner("Analyzing text and evaluating market inventory..."):
                 # --- AI INTERPRETER FRAMEWORK ---
-                # This simulates the structural output pattern you will establish with Gemini.
-                # Gemini will take unstructured prose and reliably return a predictable JSON payload.
-                
-                # Mocked parsing result for prototyping the pipeline
+                # Framework for structured output schema using Gemini.
                 mock_ai_extracted_json = {
                     "items": [
                         {"name": "cement", "quantity": 50},
@@ -78,7 +74,6 @@ if role == "👤 Customer Portal":
                     "target_delivery": "2026-06-12"
                 }
                 
-                # Visual verification for the user/admin
                 st.info("💡 **AI Extraction Success:** Unstructured request parsed into standard data models.")
                 
                 # --- SUPPLIER MATCHING ENGINE ---
@@ -102,7 +97,6 @@ if role == "👤 Customer Portal":
                             items_matched += 1
                             breakdown[item_name] = f"{qty} x £{unit_price:,.2f}"
                     
-                    # Only show vendors capable of fulfilling all requested materials
                     if items_matched == len(req_items):
                         compiled_offers.append({
                             "Supplier": supplier,
@@ -113,7 +107,6 @@ if role == "👤 Customer Portal":
                 
                 if compiled_offers:
                     df_offers = pd.DataFrame(compiled_offers)
-                    # Sort options to highlight the best market value first
                     df_offers = df_offers.sort_values(by="Total Fulfillment Cost").reset_index(drop=True)
                     
                     st.subheader("Available Market Options")
@@ -122,7 +115,6 @@ if role == "👤 Customer Portal":
                         use_container_width=True
                     )
                     
-                    # Store session state for checkout persistence
                     st.session_state['pending_order'] = df_offers.iloc[0].to_dict()
                 else:
                     st.error("No single supplier has complete stock matching your exact requirements.")
@@ -138,7 +130,6 @@ if role == "👤 Customer Portal":
             if engine:
                 try:
                     with engine.connect() as connection:
-                        # Writing structural data explicitly to the Data Lake
                         insert_query = text("""
                             INSERT INTO order_logs (supplier, total_cost, delivery_date, metadata_payload)
                             VALUES (:supplier, :cost, :delivery, :meta);
@@ -164,7 +155,6 @@ elif role == "📊 Operations & Analytics":
     st.title("📊 Market Intelligence & Operations Dashboard")
     st.markdown("This interface queries raw log layers stored inside your Supabase repository, showcasing data aggregation monetization potential.")
     
-    # Check if database pipeline is live, fall back to safe mock analytics if table doesn't exist yet
     analytics_loaded = False
     if engine:
         try:
@@ -173,17 +163,16 @@ elif role == "📊 Operations & Analytics":
                 df_analytics = pd.read_sql(query, con=engine)
                 analytics_loaded = True
         except Exception:
-            # Table may not exist yet in Supabase UI editor
-            st.sidebar.info("💡 Table 'order_logs' not found. Displaying prototype analytics stream.")
+            st.sidebar.info("💡 Table 'order_logs' not found yet. Displaying prototype analytics stream.")
             
     if not analytics_loaded:
-        # Standard structural template for monetization presentation layer
+        # Fail-safe structural template if table hasn't been built yet
         df_analytics = pd.DataFrame([
-            {"created_at": "2026-06-01 09:00:00", "supplier": "Supplier Alpha", "total_cost": 525.00, "delivery_date": "2026-06-12", "item_class": "Cement"},
-            {"created_at": "2026-06-02 11:30:00", "supplier": "Supplier Beta", "total_cost": 738.00, "delivery_date": "2026-06-12", "item_class": "Drywall"},
-            {"created_at": "2026-06-03 14:15:00", "supplier": "Supplier Alpha", "total_cost": 1050.00, "delivery_date": "2026-06-15", "item_class": "Cement"},
-            {"created_at": "2026-06-04 10:00:00", "supplier": "Supplier Gamma", "total_cost": 298.50, "delivery_date": "2026-06-19", "item_class": "Gravel"},
-            {"created_at": "2026-06-04 15:45:00", "supplier": "Supplier Beta", "total_cost": 640.00, "delivery_date": "2026-06-20", "item_class": "Drywall"}
+            {"created_at": "2026-06-01 09:00:00", "supplier": "Supplier Alpha", "total_cost": 525.00, "delivery_date": "2026-06-12"},
+            {"created_at": "2026-06-02 11:30:00", "supplier": "Supplier Beta", "total_cost": 738.00, "delivery_date": "2026-06-12"},
+            {"created_at": "2026-06-03 14:15:00", "supplier": "Supplier Alpha", "total_cost": 1050.00, "delivery_date": "2026-06-15"},
+            {"created_at": "2026-06-04 10:00:00", "supplier": "Supplier Gamma", "total_cost": 298.50, "delivery_date": "2026-06-19"},
+            {"created_at": "2026-06-04 15:45:00", "supplier": "Supplier Beta", "total_cost": 640.00, "delivery_date": "2026-06-20"}
         ])
         df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
 
