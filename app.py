@@ -240,7 +240,7 @@ else:
         if not analytics_loaded:
             st.markdown("### Prototype Template Preview (No Real Orders Yet)")
             df_analytics = pd.DataFrame([
-                {"created_at": "2026-06-04 12:00:00", "supplier": "Supplier Alpha", "total_cost": 0.0, "delivery_date": "2026-06-12", "customer_id": st.session_state["customer_id"], "metadata_payload": "{}"}
+                {"id": 1001, "created_at": "2026-06-04 12:00:00", "supplier": "Supplier Alpha", "total_cost": 0.0, "delivery_date": "2026-06-12", "customer_id": st.session_state["customer_id"], "metadata_payload": "{}"}
             ])
             df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
 
@@ -248,7 +248,9 @@ else:
         df_analytics["Items"] = df_analytics["metadata_payload"].apply(format_items_payload_html)
         df_analytics["Order Date"] = df_analytics["created_at"].dt.strftime("%d %b %Y, %H:%M")
         
+        # Mapping primary database identifiers directly to standard customer properties
         df_analytics = df_analytics.rename(columns={
+            "id": "Order No.",
             "supplier": "Allocated Supplier",
             "total_cost": "Total Spend",
             "delivery_date": "Est. Delivery Date"
@@ -283,8 +285,9 @@ else:
 
             st.subheader("Your Order History Ledger")
             
-            # Select and organize the exact customer-facing columns
+            # Select and organize columns explicitly including Order No. at the start
             display_cols = [
+                "Order No.",
                 "Order Date", 
                 "Allocated Supplier", 
                 "Items", 
@@ -295,18 +298,16 @@ else:
             df_display = df_analytics[display_cols].copy()
             df_display["Total Spend"] = df_display["Total Spend"].apply(lambda x: f"£{x:,.2f}" if isinstance(x, (int, float)) else x)
             df_display["Est. Delivery Date"] = df_display["Est. Delivery Date"].astype(str)
+            df_display["Order No."] = df_display["Order No."].astype(str)
 
-            # --- THE DECISIVE FIX: NATIVE HTML GENERATION ---
-            # 1. We inject custom styles to add padding, borders, and center aligning to make it look highly professional.
-            # 2. escape=False guarantees that the browser renders our HTML '<br>' breaks natively.
-            # 3. index=False completely removes the unwanted first column.
+            # --- NATIVE HTML GENERATION ---
             html_table = df_display.to_html(
                 index=False, 
                 escape=False, 
                 classes="custom-ledger-table"
             )
             
-            # Inject beautiful table styling directly into the layout
+            # Corporate Styling Sheet
             st.markdown(
                 """
                 <style>
@@ -334,5 +335,4 @@ else:
                 unsafe_allow_html=True
             )
             
-            # Render the final data structure
             st.markdown(html_table, unsafe_allow_html=True)
