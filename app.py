@@ -226,11 +226,7 @@ else:
         analytics_loaded = False
         if supabase:
             try:
-                response = supabase.table("order_logs")\
-                                   .select("*")\
-                                   .eq("customer_id", st.session_state["customer_id"])\
-                                   .order("created_at", desc=True)\
-                                   .execute()
+                response = supabase.table("order_logs").select("*").eq("customer_id", st.session_state["customer_id"]).order("created_at", desc=True).execute()
                 
                 if response.data and len(response.data) > 0:
                     df_analytics = pd.DataFrame(response.data)
@@ -306,5 +302,17 @@ else:
             df_display["Est. Delivery Date"] = df_display["Est. Delivery Date"].astype(str)
 
             # --- UI RENDERING CONFIGURATION ---
-            # Storing output via st.table ensures raw formatting and breaks are fully honored 
+            # Inject CSS to force HTML tables to preserve the newline format inside the cell box
+            st.markdown(
+                """
+                <style>
+                table td {
+                    white-space: pre-line !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            # Render clean, index-free table layout
             st.table(df_display)
