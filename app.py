@@ -137,7 +137,7 @@ else:
         st.subheader("What do you need today?")
         user_input = st.text_area(
             "Enter project requirements:",
-            placeholder="e.g., I need 50 cement, 15 drywall, and nails 1000...",
+            placeholder="e.g., I want nails, 500 of them...",
             height=120,
             key="customer_material_input"
         )
@@ -167,35 +167,41 @@ else:
                                 dynamic_suppliers[sup] = {}
                             dynamic_suppliers[sup][item] = price
                             
-                        parsed_items = []
-                        input_lower = user_input.lower()
-                        known_db_items = list(set([row['item_name'] for row in db_query.data]))
+                        # --- BULLETPROOF PROXIMITY SCANNED PARSING ENGINE ---
+                        clean_text = re.sub(r'[^\w\s]', ' ', user_input.lower())
+                        tokens = clean_text.split()
                         
+                        known_db_items = list(set([row['item_name'] for row in db_query.data]))
+                        extracted_quantities = {}
+                        matched_keywords_from_numbers = set()
+                        
+                        # STEP 1: Process every number to find its adjacent material
+                        for idx, token in enumerate(tokens):
+                            if token.isdigit():
+                                qty = int(token)
+                                
+                                # Look up to 3 tokens backward and 3 tokens forward
+                                lookback = tokens[max(0, idx-3):idx]
+                                lookforward = tokens[idx+1:idx+4]
+                                neighborhood = " ".join(lookback + lookforward)
+                                
+                                for keyword in known_db_items:
+                                    # Check for partial or full match in the immediate neighborhood
+                                    if keyword in neighborhood or any(word in neighborhood for word in keyword.split()):
+                                        extracted_quantities[keyword] = qty
+                                        matched_keywords_from_numbers.add(keyword)
+                        
+                        # STEP 2: Only apply fallback defaults for items mentioned entirely WITHOUT numbers
                         for keyword in known_db_items:
-                            if keyword in input_lower:
-                                quantity = None
+                            if keyword in clean_text and keyword not in matched_keywords_from_numbers:
+                                # User named a material but didn't write a number anywhere near it
+                                extracted_quantities[keyword] = 10
                                 
-                                # Pass 1: Look for number BEFORE the item (e.g., "1000 nails", "50 bags of cement")
-                                pattern_before = rf"(\d+)\s*(?:bags?|sheets?|units?|boxes?|x)?\s*{keyword}"
-                                match_before = re.search(pattern_before, input_lower)
-                                
-                                if match_before:
-                                    quantity = int(match_before.group(1))
-                                else:
-                                    # Pass 2: Look for number AFTER the item (e.g., "nails 1000", "cement x50")
-                                    pattern_after = rf"{keyword}\s*(?:x|qty|quantity)?\s*(\d+)"
-                                    match_after = re.search(pattern_after, input_lower)
-                                    if match_after:
-                                        quantity = int(match_after.group(1))
-                                
-                                # Fallback if item is mentioned but no numeric quantity is parsed anywhere near it
-                                if quantity is None:
-                                    quantity = 10
-                                    
-                                parsed_items.append({"name": keyword, "quantity": quantity})
+                        # Package parsed results into output dictionary
+                        parsed_items = [{"name": name, "quantity": qty} for name, qty in extracted_quantities.items()]
                                 
                         if not parsed_items:
-                            st.warning("⚠️ No catalog materials identified in your request text.")
+                            st.warning("⚠️ No catalog materials identified in your request text. Please mention specific items from the catalog.")
                             st.stop()
                             
                         mock_ai_extracted_json = {
@@ -203,7 +209,6 @@ else:
                             "target_delivery": "2026-06-12"
                         }
                         
-                        # Visible validation step showing the user exactly what was parsed
                         st.info("💡 **AI Extraction Success:** Unstructured request parsed into standard data models.")
                         st.json(mock_ai_extracted_json)
                         
