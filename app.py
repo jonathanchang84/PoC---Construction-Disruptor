@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from sqlalchemy import create_engine, text
+from supabase import create_client, Client
 import json
 
 # --- 1. Page Configuration ---
@@ -12,27 +12,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. Secure Database Connection Layer ---
-engine = None
-if "SUPABASE_URL" in st.secrets:
-    db_url = st.secrets["SUPABASE_URL"]
-    
-    # Fix standard dialect naming quirk for SQLAlchemy if needed
-    if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
-        
+# --- 2. Secure Web API Connection Layer ---
+supabase: Client = None
+if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
     try:
-        # Initialize standard engine with pre-ping validation
-        engine = create_engine(db_url, pool_pre_ping=True)
-        # Quick health check test
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        st.sidebar.success("🔌 Supabase Connected")
+        # Initialize the native web client using API key
+        supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+        st.sidebar.success("⚡ Supabase API Connected")
     except Exception as e:
         st.sidebar.error("🔌 Supabase Connection Failed")
         st.sidebar.caption(f"Error details: {e}")
 else:
-    st.sidebar.warning("⚠️ Database credentials missing from Secrets.")
+    st.sidebar.warning("⚠️ API credentials missing from Secrets.")
 
 # --- 3. Mock Supplier API Data ---
 MOCK_SUPPLIERS = {
@@ -65,7 +56,6 @@ if role == "👤 Customer Portal":
         else:
             with st.spinner("Analyzing text and evaluating market inventory..."):
                 # --- AI INTERPRETER FRAMEWORK ---
-                # Framework for structured output schema using Gemini.
                 mock_ai_extracted_json = {
                     "items": [
                         {"name": "cement", "quantity": 50},
@@ -99,19 +89,19 @@ if role == "👤 Customer Portal":
                     
                     if items_matched == len(req_items):
                         compiled_offers.append({
-                            "Supplier": supplier,
-                            "Total Fulfillment Cost": total_supplier_cost,
-                            "Fulfillment Date": target_date,
-                            "Breakdown Details": json.dumps(breakdown)
+                            "supplier": supplier,
+                            "total_cost": total_supplier_cost,
+                            "delivery_date": target_date,
+                            "metadata_payload": json.dumps(breakdown)
                         })
                 
                 if compiled_offers:
                     df_offers = pd.DataFrame(compiled_offers)
-                    df_offers = df_offers.sort_values(by="Total Fulfillment Cost").reset_index(drop=True)
+                    df_offers = df_offers.sort_values(by="total_cost").reset_index(drop=True)
                     
                     st.subheader("Available Market Options")
                     st.dataframe(
-                        df_offers[["Supplier", "Total Fulfillment Cost", "Fulfillment Date"]], 
+                        df_offers[["supplier", "total_cost", "delivery_date"]], 
                         use_container_width=True
                     )
                     
@@ -124,49 +114,47 @@ if role == "👤 Customer Portal":
         st.write("---")
         st.subheader("Confirm Best Value Allocation")
         best_deal = st.session_state['pending_order']
-        st.write(f"Proceed with **{best_deal['Supplier']}** for a total of **£{best_deal['Total Fulfillment Cost']:,.2f}**?")
+        st.write(f"Proceed with **{best_deal['supplier']}** for a total of **£{best_deal['total_cost']:,.2f}**?")
         
         if st.button("Confirm and Route Order"):
-            if engine:
+            if supabase:
                 try:
-                    with engine.connect() as connection:
-                        insert_query = text("""
-                            INSERT INTO order_logs (supplier, total_cost, delivery_date, metadata_payload)
-                            VALUES (:supplier, :cost, :delivery, :meta);
-                        """)
-                        connection.execute(insert_query, {
-                            "supplier": best_deal["Supplier"],
-                            "cost": float(best_deal["Total Fulfillment Cost"]),
-                            "delivery": best_deal["Fulfillment Date"],
-                            "meta": best_deal["Breakdown Details"]
-                        })
-                        connection.commit()
+                    # Insert data via the web API client instead of raw SQL
+                    data, count = supabase.table("order_logs").insert({
+                        "supplier": best_deal["supplier"],
+                        "total_cost": float(best_deal["total_cost"]),
+                        "delivery_date": best_deal["delivery_date"],
+                        "metadata_payload": best_deal["metadata_payload"]
+                    }).execute()
+                    
                     st.success("✅ Order successfully committed to operational stack and logged to Data Lake!")
                     del st.session_state['pending_order']
                     st.balloons()
                 except Exception as db_err:
-                    st.error(f"Failed to log record to Supabase: {db_err}")
+                    st.error(f"Failed to log record via Supabase API: {db_err}")
             else:
-                st.error("Database engine uninitialized. Cannot write transaction log.")
+                st.error("Supabase API Client uninitialized. Cannot write transaction log.")
 
 
 # VIEW B: OPERATIONS & ANALYTICS
 elif role == "📊 Operations & Analytics":
     st.title("📊 Market Intelligence & Operations Dashboard")
-    st.markdown("This interface queries raw log layers stored inside your Supabase repository, showcasing data aggregation monetization potential.")
+    st.markdown("This interface queries raw log layers stored inside your Supabase repository via API endpoint streams.")
     
     analytics_loaded = False
-    if engine:
+    if supabase:
         try:
-            with engine.connect() as connection:
-                query = "SELECT * FROM order_logs ORDER BY created_at DESC LIMIT 500;"
-                df_analytics = pd.read_sql(query, con=engine)
+            # Pull records via API Client response payload
+            response = supabase.table("order_logs").select("*").order("created_at", desc=True).limit(500).execute()
+            if response.data:
+                df_analytics = pd.DataFrame(response.data)
+                df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
                 analytics_loaded = True
         except Exception:
-            st.sidebar.info("💡 Table 'order_logs' not found yet. Displaying prototype analytics stream.")
+            st.sidebar.info("💡 Real table logs unavailable. Showing visualization blueprint.")
             
     if not analytics_loaded:
-        # Fail-safe structural template if table hasn't been built yet
+        # Fallback simulation data
         df_analytics = pd.DataFrame([
             {"created_at": "2026-06-01 09:00:00", "supplier": "Supplier Alpha", "total_cost": 525.00, "delivery_date": "2026-06-12"},
             {"created_at": "2026-06-02 11:30:00", "supplier": "Supplier Beta", "total_cost": 738.00, "delivery_date": "2026-06-12"},
@@ -176,7 +164,7 @@ elif role == "📊 Operations & Analytics":
         ])
         df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
 
-    # --- IN-MEMORY TRANSFORMATION LAYER ---
+    # --- TRANSFORMATION LAYER ---
     st.subheader("Data Optimization Filter")
     selected_vendor = st.selectbox("Filter Metrics By Executing Vendor:", ["All Vendors"] + list(df_analytics["supplier"].unique()))
     
