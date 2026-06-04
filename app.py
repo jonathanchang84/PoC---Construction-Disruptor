@@ -113,7 +113,6 @@ def format_items_payload_html(payload_string):
             return "No items logged"
         
         data_dict = json.loads(payload_string)
-        # Using <br> forces a visual line break inside markdown table formats
         formatted_lines = [f"• {item.title()}: {details}" for item, details in data_dict.items()]
         return "<br>".join(formatted_lines)
     except Exception:
@@ -246,13 +245,9 @@ else:
             df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
 
         # --- DATA CLEANING LAYER ---
-        # 1. Format the items with explicit HTML breaks (<br>)
         df_analytics["Items"] = df_analytics["metadata_payload"].apply(format_items_payload_html)
-        
-        # 2. Extract and format a dedicated, clean customer-facing Order Date
         df_analytics["Order Date"] = df_analytics["created_at"].dt.strftime("%d %b %Y, %H:%M")
         
-        # 3. Rename metric headers cleanly
         df_analytics = df_analytics.rename(columns={
             "supplier": "Allocated Supplier",
             "total_cost": "Total Spend",
@@ -301,8 +296,43 @@ else:
             df_display["Total Spend"] = df_display["Total Spend"].apply(lambda x: f"£{x:,.2f}" if isinstance(x, (int, float)) else x)
             df_display["Est. Delivery Date"] = df_display["Est. Delivery Date"].astype(str)
 
-            # --- THE DECISIVE FIX: MARKDOWN HTML TABLE GENERATION ---
-            # By converting to a markdown string table with index=False, we fully drop the index column.
-            # Passing unsafe_allow_html=True commands Streamlit to execute the <br> tags natively.
-            markdown_table = df_display.to_markdown(index=False)
-            st.markdown(markdown_table, unsafe_allow_html=True)
+            # --- THE DECISIVE FIX: NATIVE HTML GENERATION ---
+            # 1. We inject custom styles to add padding, borders, and center aligning to make it look highly professional.
+            # 2. escape=False guarantees that the browser renders our HTML '<br>' breaks natively.
+            # 3. index=False completely removes the unwanted first column.
+            html_table = df_display.to_html(
+                index=False, 
+                escape=False, 
+                classes="custom-ledger-table"
+            )
+            
+            # Inject beautiful table styling directly into the layout
+            st.markdown(
+                """
+                <style>
+                .custom-ledger-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-family: sans-serif;
+                    margin: 10px 0;
+                }
+                .custom-ledger-table th {
+                    background-color: #f0f2f6;
+                    color: #31333F;
+                    text-align: left;
+                    padding: 12px;
+                    border-bottom: 2px solid #e6e8f1;
+                }
+                .custom-ledger-table td {
+                    padding: 12px;
+                    border-bottom: 1px solid #e6e8f1;
+                    vertical-align: top;
+                    line-height: 1.5;
+                }
+                </style>
+                """, 
+                unsafe_allow_html=True
+            )
+            
+            # Render the final data structure
+            st.markdown(html_table, unsafe_allow_html=True)
