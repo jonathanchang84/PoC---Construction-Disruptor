@@ -99,13 +99,6 @@ else:
             del st.session_state["pending_order"]
         st.rerun()
 
-# --- 4. Live PoC Global Inventory & Catalog Matrix ---
-MOCK_SUPPLIERS = {
-    "Supplier Alpha": {"cement": 10.50, "drywall": 15.00, "gravel": 32.00},
-    "Supplier Beta": {"cement": 11.00, "drywall": 14.20, "gravel": 35.50},
-    "Supplier Gamma": {"cement": 9.95, "drywall": 16.10, "gravel": 30.00}
-}
-
 # --- Helper Function to Clean JSON Metadata ---
 def format_items_payload_html(payload_string):
     """Parses raw JSON string into a clean layout utilizing HTML breaks for explicit line rendering."""
@@ -119,7 +112,7 @@ def format_items_payload_html(payload_string):
     except Exception:
         return str(payload_string)
 
-# --- 5. Application Routing Views ---
+# --- 4. Application Routing Views ---
 if not st.session_state["customer_id"]:
     st.title("📦 Smart Supply Platform")
     st.warning("🔒 Access Restricted. Please register an account or log in via the sidebar access panel to manage orders.")
@@ -130,11 +123,22 @@ else:
         st.caption(f"Acting on behalf of tenant: {st.session_state['customer_id']}")
         st.markdown("Submit your material requests naturally. Our AI engine will structure the requirements and match live vendor availability.")
         
-        st.subheader("What do you need today?")
+        # Display the live house building catalog to the user as a reference guide
+        with st.expander("📖 View Active Material Catalog (Soft-Coded from Supabase)"):
+            if supabase:
+                try:
+                    inv_data = supabase.table("supplier_inventory").select("item_name, unit_price").execute()
+                    if inv_data.data:
+                        unique_items = pd.DataFrame(inv_data.data).drop_duplicates().reset_index(drop=True)
+                        unique_items.columns = ["Available Material", "Market Base Price"]
+                        st.dataframe(unique_items, use_container_width=True, hide_index=True)
+                except Exception as e:
+                    st.caption(f"Could not load catalog overview: {e}")
         
+        st.subheader("What do you need today?")
         user_input = st.text_area(
             "Enter project requirements:",
-            placeholder="e.g., I'm looking for 50 bags of cement and 15 sheets of drywall by next Friday...",
+            placeholder="e.g., I need 50 cement, 15 drywall, and 1000 nails for the new residential site...",
             height=120,
             key="customer_material_input"
         )
@@ -142,75 +146,98 @@ else:
         if st.button("Process Request with AI", type="primary"):
             if not user_input.strip():
                 st.error("Please enter a description first.")
+            elif not supabase:
+                st.error("Supabase connection missing. Cannot query dynamic inventory.")
             else:
-                with st.spinner("Analyzing text and evaluating market inventory..."):
+                with st.spinner("Analyzing text and pulling dynamic supplier inventory data..."):
                     
-                    # --- NEW DYNAMIC PARSING ENGINE ---
-                    # Regex scanning looks for numbers directly adjacent to or preceding materials typed
-                    parsed_items = []
-                    input_lower = user_input.lower()
-                    
-                    keywords = ["cement", "drywall", "gravel"]
-                    for keyword in keywords:
-                        if keyword in input_lower:
-                            # Search for any digits sequence near the keyword (e.g., "50 bags of cement" or "cement 50")
-                            pattern = rf"(\d+)\s*(?:bags?|sheets?|units?|x)?\s*{keyword}|{keyword}\s*(?:x)?\s*(\d+)"
-                            match = re.search(pattern, input_lower)
+                    try:
+                        # Fetch the dynamic soft-coded inventory dictionary straight from the database
+                        db_query = supabase.table("supplier_inventory").select("supplier_name, item_name, unit_price").execute()
+                        
+                        if not db_query.data:
+                            st.error("The supplier inventory table is empty. Please check your setup.")
+                            st.stop()
                             
-                            if match:
-                                quantity = int(match.group(1) or match.group(2))
-                            else:
-                                quantity = 10  # Standard smart fallback default quantity if user omitted numbers
+                        # Restructure dynamic DB list into internal mapping array
+                        dynamic_suppliers = {}
+                        for row in db_query.data:
+                            sup = row['supplier_name']
+                            item = row['item_name']
+                            price = float(row['unit_price'])
+                            
+                            if sup not in dynamic_suppliers:
+                                dynamic_suppliers[sup] = {}
+                            dynamic_suppliers[sup][item] = price
+                            
+                        # Natural Language parsing loop
+                        parsed_items = []
+                        input_lower = user_input.lower()
+                        
+                        # Dynamically extract keywords based on what actually exists in our DB table right now
+                        known_db_items = list(set([row['item_name'] for row in db_query.data]))
+                        
+                        for keyword in known_db_items:
+                            if keyword in input_lower:
+                                # Scan text for numbers associated with the found keyword
+                                pattern = rf"(\d+)\s*(?:bags?|sheets?|units?|boxes?|x)?\s*{keyword}|{keyword}\s*(?:x)?\s*(\d+)"
+                                match = re.search(pattern, input_lower)
+                                quantity = int(match.group(1) or match.group(2)) if match else 10
+                                parsed_items.append({"name": keyword, "quantity": quantity})
                                 
-                            parsed_items.append({"name": keyword, "quantity": quantity})
-                    
-                    # Absolute emergency safety baseline if text block can't map any keywords
-                    if not parsed_items:
-                        parsed_items = [{"name": "cement", "quantity": 25}]
-                        
-                    mock_ai_extracted_json = {
-                        "items": parsed_items,
-                        "target_delivery": "2026-06-12"
-                    }
-                    st.info("💡 **AI Extraction Success:** Unstructured request parsed into standard data models.")
-                    
-                    compiled_offers = []
-                    req_items = mock_ai_extracted_json["items"]
-                    target_date = mock_ai_extracted_json["target_delivery"]
-                    
-                    for supplier, inventory in MOCK_SUPPLIERS.items():
-                        total_supplier_cost = 0.0
-                        items_matched = 0
-                        breakdown = {}
-                        
-                        for item in req_items:
-                            item_name = item["name"].lower()
-                            qty = item["quantity"]
+                        if not parsed_items:
+                            st.warning("⚠️ No catalog materials identified in your request text. Try using terms from the catalog above.")
+                            st.stop()
                             
-                            if item_name in inventory:
-                                unit_price = inventory[item_name]
-                                line_cost = unit_price * qty
-                                total_supplier_cost += line_cost
-                                items_matched += 1
-                                breakdown[item_name] = f"{qty} x £{unit_price:,.2f}"
+                        mock_ai_extracted_json = {
+                            "items": parsed_items,
+                            "target_delivery": "2026-06-12"
+                        }
+                        st.info("💡 **AI Extraction Success:** Unstructured request parsed into standard data models.")
                         
-                        # Only return options from suppliers that can fully satisfy the extracted basket
-                        if items_matched == len(req_items):
+                        compiled_offers = []
+                        req_items = mock_ai_extracted_json["items"]
+                        target_date = mock_ai_extracted_json["target_delivery"]
+                        
+                        # Evaluate offers across our dynamically loaded suppliers
+                        for supplier, inventory in dynamic_suppliers.items():
+                            total_supplier_cost = 0.0
+                            breakdown = {}
+                            
+                            for item in req_items:
+                                item_name = item["name"].lower()
+                                qty = item["quantity"]
+                                
+                                if item_name in inventory:
+                                    unit_price = inventory[item_name]
+                                    line_cost = unit_price * qty
+                                    total_supplier_cost += line_cost
+                                    breakdown[item_name] = f"{qty} x £{unit_price:,.2f}"
+                                else:
+                                    # Safe fallback if an added item isn't carried by this supplier
+                                    proxy_price = 10.00
+                                    line_cost = proxy_price * qty
+                                    total_supplier_cost += line_cost
+                                    breakdown[item_name] = f"{qty} x £{proxy_price:,.2f} (Special Order)"
+                            
                             compiled_offers.append({
                                 "supplier": supplier,
                                 "total_cost": total_supplier_cost,
                                 "delivery_date": target_date,
                                 "metadata_payload": json.dumps(breakdown)
                             })
-                    
-                    if compiled_offers:
-                        df_offers = pd.DataFrame(compiled_offers)
-                        df_offers = df_offers.sort_values(by="total_cost").reset_index(drop=True)
-                        st.subheader("Available Market Options")
-                        st.dataframe(df_offers[["supplier", "total_cost", "delivery_date"]], use_container_width=True)
-                        st.session_state['pending_order'] = df_offers.iloc[0].to_dict()
-                    else:
-                        st.error("No single supplier has complete stock matching your exact requirements.")
+                        
+                        if compiled_offers:
+                            df_offers = pd.DataFrame(compiled_offers)
+                            df_offers = df_offers.sort_values(by="total_cost").reset_index(drop=True)
+                            st.subheader("Available Market Options")
+                            st.dataframe(df_offers[["supplier", "total_cost", "delivery_date"]], use_container_width=True)
+                            st.session_state['pending_order'] = df_offers.iloc[0].to_dict()
+                        else:
+                            st.error("Could not construct allocation options for the requested materials.")
+                            
+                    except Exception as pipeline_error:
+                        st.error(f"Inventory extraction processing loop failed: {pipeline_error}")
 
         # Checkout Engine
         if 'pending_order' in st.session_state:
@@ -222,7 +249,6 @@ else:
             if st.button("Confirm and Route Order"):
                 if supabase:
                     try:
-                        # Write structured row packet out to Supabase Cloud
                         data, count = supabase.table("order_logs").insert({
                             "customer_id": st.session_state["customer_id"],
                             "supplier": best_deal["supplier"],
@@ -232,13 +258,10 @@ else:
                         }).execute()
                         
                         st.success("✅ Order successfully committed and partitioned to your Customer ID!")
-                        
-                        # Clean up the pending cache dictionary safely
                         del st.session_state['pending_order']
-                        
                         st.balloons()
                         
-                        # Force app context layout reset and instantly jump to tracking tab
+                        st.session_state["current_view"] = "export_view"
                         st.session_state["current_view"] = "📊 My Orders & Analytics"
                         st.rerun()
                             
@@ -328,11 +351,7 @@ else:
             df_display["Order No."] = df_display["Order No."].astype(str)
 
             # --- HTML GENERATION LAYER ---
-            html_table = df_display.to_html(
-                index=False, 
-                escape=False, 
-                classes="custom-ledger-table"
-            )
+            html_table = df_display.to_html(index=False, escape=False, classes="custom-ledger-table")
             
             st.markdown(
                 """
