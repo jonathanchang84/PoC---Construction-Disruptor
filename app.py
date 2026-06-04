@@ -35,13 +35,14 @@ if "GEMINI_API_KEY" in st.secrets:
 else:
     st.sidebar.error("❌ GEMINI_API_KEY missing from Secrets.")
 
-# --- 3. Structured Data Models for LLM Enforcement ---
+# --- 3. Upgraded Structured Data Models for Estimations ---
 class MaterialItem(BaseModel):
     name: str = Field(description="The exact material name or its closest matched equivalent from the provided catalog list.")
-    quantity: int = Field(description="The structural volume or number of units requested by the client.")
+    quantity: int = Field(description="The final total count or volume of items calculated to fulfill the request.")
+    reasoning_breakdown: str = Field(description="A brief, 1-sentence math breakdown explaining exactly how this quantity was derived from structural measurements.")
 
 class ProcurementIntent(BaseModel):
-    items: list[MaterialItem] = Field(description="A collection of structured items parsed from the unstructured text.")
+    items: list[MaterialItem] = Field(description="A collection of structured items parsed and calculated from the text.")
 
 # --- 4. Identity & Authentication Layer ---
 st.sidebar.title("🔐 Access Control")
@@ -152,7 +153,7 @@ else:
         st.subheader("What do you need today?")
         user_input = st.text_area(
             "Enter project requirements:",
-            placeholder="e.g., I want nails, 500 of them, and send over around 30 sheets of drywall too...",
+            placeholder="e.g., I would like enough bricks to build the walls of a room 4mx5m...",
             height=120,
             key="customer_material_input"
         )
@@ -165,10 +166,10 @@ else:
             elif not gemini_ready:
                 st.error("Gemini client configuration missing. Check secrets setup.")
             else:
-                with st.spinner("Invoking Gemini 2.5 Flash to parse semantic intent..."):
+                with st.spinner("Invoking Gemini 2.5 Flash Estimation Engine..."):
                     
                     try:
-                        # Fetch the target product keywords from Supabase to inform Gemini
+                        # Fetch current items in system database
                         db_query = supabase.table("supplier_inventory").select("supplier_name, item_name, unit_price").execute()
                         
                         if not db_query.data:
@@ -187,22 +188,26 @@ else:
                             
                         known_db_items = list(set([row['item_name'] for row in db_query.data]))
                         
-                        # --- GENAI EXTRACTION FLOW ---
+                        # --- GENAI REASONING EXTRACTION FLOW ---
                         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
                         
                         system_context_prompt = f"""
-                        You are a construction logistics data extraction parser. Your task is to process user requirements and extract materials.
-                        You must match user intents to these specific system catalog items if they are synonyms or semantic fits: {known_db_items}.
+                        You are an expert construction estimator and logistics parsing engine.
+                        Your task is to convert conversational or architectural requests into exact material counts.
                         
-                        Rules:
-                        1. If the user uses a conversational phrase like "I want nails, 500 of them", resolve that to quantity: 500, item name: 'nails'.
-                        2. If they type a synonym (e.g. 'timber sheets' instead of 'osb flooring sheets'), normalize it to the correct catalog term.
-                        3. Be precise with quantities.
+                        Available System Catalog Items: {known_db_items}
+                        
+                        Rules for Structural Estimation:
+                        1. If the user asks for 'bricks' or related materials to build walls for a room layout but doesn't specify height, assume a standard room ceiling height of 2.4 meters.
+                        2. Use the industry standard calculation formula: A single-skin brick wall requires exactly 60 bricks per square meter.
+                        3. Always calculate the total wall perimeter (sum of all 4 sides), multiply by height to get total area, multiply by 60, and then append a 10% safety/wastage margin. Round up to the nearest integer.
+                        4. Map the final output to a matching string directly inside the system catalog list.
+                        5. Fill the reasoning_breakdown field with a brief description of the formula used.
                         """
                         
                         response = client.models.generate_content(
                             model='gemini-2.5-flash',
-                            contents=f"Extract from this string: {user_input}",
+                            contents=f"Process requirements string: {user_input}",
                             config=types.GenerateContentConfig(
                                 system_instruction=system_context_prompt,
                                 response_mime_type="application/json",
@@ -211,7 +216,6 @@ else:
                             ),
                         )
                         
-                        # Load validated json output back into app dictionary workflow
                         llm_payload = json.loads(response.text)
                         
                         mock_ai_extracted_json = {
@@ -219,7 +223,15 @@ else:
                             "target_delivery": "2026-06-12"
                         }
                         
-                        st.info("💡 **Gemini Extraction Success:** Context-aware semantic parse completed.")
+                        st.info("💡 **Gemini Extraction & Engineering Engine Success:**")
+                        
+                        # Output clear metrics and breakdown logs directly to frontend
+                        for calc_item in mock_ai_extracted_json["items"]:
+                            with st.container():
+                                col_b1, col_b2 = st.columns([1, 4])
+                                col_b1.metric(label=f"Calculated {calc_item['name'].title()}", value=f"{calc_item['quantity']:,}")
+                                col_b2.markdown(f"**AI Engineering Estimation Breakdown:**\n*{calc_item['reasoning_breakdown']}*")
+                        
                         st.json(mock_ai_extracted_json)
                         
                         # --- VENDOR MATCHING ENGINE ---
@@ -263,7 +275,7 @@ else:
                             st.error("Could not construct allocation options.")
                             
                     except Exception as pipeline_error:
-                        st.error(f"Gemini processing loop failed: {pipeline_error}")
+                        st.error(f"Gemini estimation processing loop failed: {pipeline_error}")
 
         # Checkout Engine
         if 'pending_order' in st.session_state:
