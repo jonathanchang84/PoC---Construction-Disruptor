@@ -1,6 +1,22 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+
+st.set_page_config(page_title="Smart Supply Platform", layout="wide")
+
+# Initialize the PostgreSQL connection using the secrets we set up
+conn = st.connection("postgresql", type="sql")
+
+# --- Test the connection and display existing data ---
+# (You can remove or comment this test block out later)
+st.sidebar.subheader("Database Status")
+try:
+    # This runs a simple test query against Supabase
+    test_query = conn.query("SELECT NOW();", ttl="0")
+    st.sidebar.success("Connected to Supabase!")
+except Exception as e:
+    st.sidebar.error("Database connection failed.")
+    st.sidebar.write(e)
 # import google.generativeai as genai (Install via pip)
 
 st.set_page_config(page_title="Smart Supply Platform", layout="wide")
