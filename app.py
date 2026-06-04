@@ -107,19 +107,17 @@ MOCK_SUPPLIERS = {
 
 # --- Helper Function to Clean JSON Metadata ---
 def format_items_payload(payload_string):
-    """Parses raw JSON string into a clean, human-readable list."""
+    """Parses raw JSON string into a clean bulleted list with manual line breaks."""
     try:
         if not payload_string:
             return "No items logged"
         
-        # Load string into a Python dictionary
         data_dict = json.loads(payload_string)
-        
-        # Format dictionary keys and values into a human-friendly sentence block
+        # Format keys with clean spacing to respect newlines inside the text box cell
         formatted_lines = [f"• {item.title()}: {details}" for item, details in data_dict.items()]
         return "\n".join(formatted_lines)
     except Exception:
-        return str(payload_string) # Fallback to raw text if parsing fails
+        return str(payload_string)
 
 # --- 5. Application Routing Views ---
 if not st.session_state["customer_id"]:
@@ -247,20 +245,19 @@ else:
         if not analytics_loaded:
             st.markdown("### Prototype Template Preview (No Real Orders Yet)")
             df_analytics = pd.DataFrame([
-                {"created_at": "2026-06-01 09:00:00", "supplier": "Supplier Alpha", "total_cost": 0.0, "delivery_date": "2026-06-12", "customer_id": st.session_state["customer_id"], "metadata_payload": "{}"}
+                {"created_at": "2026-06-04 12:00:00", "supplier": "Supplier Alpha", "total_cost": 0.0, "delivery_date": "2026-06-12", "customer_id": st.session_state["customer_id"], "metadata_payload": "{}"}
             ])
             df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
 
         # --- DATA CLEANING LAYER ---
-        # Apply our helper function to convert the JSON payload into beautiful bullet points
-        df_analytics["Ordered Items"] = df_analytics["metadata_payload"].apply(format_items_payload)
+        # 1. Format the items into strings with raw newlines
+        df_analytics["Items"] = df_analytics["metadata_payload"].apply(format_items_payload)
         
-        # Standardize and clean up database timestamps for the UI grid
-        df_analytics["Order Date"] = df_analytics["created_at"].dt.strftime("%Y-%m-%d %H:%M")
+        # 2. Extract and format a dedicated, clean customer-facing Order Date
+        df_analytics["Order Date"] = df_analytics["created_at"].dt.strftime("%d %b %Y, %H:%M")
         
-        # Rename standard metric columns for clean presentation
+        # 3. Rename metric headers cleanly
         df_analytics = df_analytics.rename(columns={
-            "id": "Order Reference ID",
             "supplier": "Allocated Supplier",
             "total_cost": "Total Spend (£)",
             "delivery_date": "Est. Delivery Date"
@@ -295,17 +292,25 @@ else:
 
             st.subheader("Your Order History Ledger")
             
-            # Display only the beautiful, renamed columns in the data frame grid
+            # Filter layout to ONLY include the columns the customer needs to see
             display_cols = [
-                "Order Reference ID", 
                 "Order Date", 
                 "Allocated Supplier", 
-                "Ordered Items",       # <--- Our freshly transformed text list!
+                "Items", 
                 "Total Spend (£)", 
                 "Est. Delivery Date"
             ]
             
+            # --- UI RENDERING CONFIGURATION ---
             st.dataframe(
                 df_analytics[display_cols], 
-                use_container_width=True
+                use_container_width=True,
+                hide_index=True,  # <--- Removes the unlabelled left-most sequential index column entirely
+                column_config={
+                    "Items": st.column_config.TextColumn(
+                        "Items",
+                        help="Structured item details parsed from unstructured request",
+                        width="large"  # Expands the container box so multi-line text reads beautifully
+                    )
+                }
             )
