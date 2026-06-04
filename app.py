@@ -107,13 +107,12 @@ MOCK_SUPPLIERS = {
 
 # --- Helper Function to Clean JSON Metadata ---
 def format_items_payload(payload_string):
-    """Parses raw JSON string into a clean bulleted list with manual line breaks."""
+    """Parses raw JSON string into a clean bulleted list with line breaks."""
     try:
         if not payload_string:
             return "No items logged"
         
         data_dict = json.loads(payload_string)
-        # Format keys with clean spacing to respect newlines inside the text box cell
         formatted_lines = [f"• {item.title()}: {details}" for item, details in data_dict.items()]
         return "\n".join(formatted_lines)
     except Exception:
@@ -301,16 +300,11 @@ else:
                 "Est. Delivery Date"
             ]
             
+            # Format the numeric column cleanly as currency text before rendering
+            df_display = df_analytics[display_cols].copy()
+            df_display["Total Spend (£)"] = df_display["Total Spend (£)"].apply(lambda x: f"£{x:,.2f}" if isinstance(x, (int, float)) else x)
+            df_display["Est. Delivery Date"] = df_display["Est. Delivery Date"].astype(str)
+
             # --- UI RENDERING CONFIGURATION ---
-            st.dataframe(
-                df_analytics[display_cols], 
-                use_container_width=True,
-                hide_index=True,  # <--- Removes the unlabelled left-most sequential index column entirely
-                column_config={
-                    "Items": st.column_config.TextColumn(
-                        "Items",
-                        help="Structured item details parsed from unstructured request",
-                        width="large"  # Expands the container box so multi-line text reads beautifully
-                    )
-                }
-            )
+            # Storing output via st.table ensures raw formatting and breaks are fully honored 
+            st.table(df_display)
