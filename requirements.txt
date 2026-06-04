@@ -2,3 +2,5 @@ plotly
 pandas
 google-generativeai
 supabase
+sqlalchemy
+psycopg2-binary
