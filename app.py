@@ -30,7 +30,6 @@ st.sidebar.title("🔐 Access Control")
 if "customer_id" not in st.session_state:
     st.session_state["customer_id"] = None
 
-# Track active view using session state for programmatic jumping
 if "current_view" not in st.session_state:
     st.session_state["current_view"] = "👤 Customer Portal"
 
@@ -83,7 +82,6 @@ if not st.session_state["customer_id"]:
 else:
     st.sidebar.success(f"Active Session: **{st.session_state['customer_id']}**")
     
-    # Navigation Radio binded directly to our state tracker
     st.sidebar.title("Navigation")
     role = st.sidebar.radio(
         "Select Interface:", 
@@ -91,7 +89,6 @@ else:
         key="navigation_radio",
         index=0 if st.session_state["current_view"] == "👤 Customer Portal" else 1
     )
-    # Sync visual radio selection back to controller state
     st.session_state["current_view"] = role
 
     if st.sidebar.button("Log Out"):
@@ -107,6 +104,22 @@ MOCK_SUPPLIERS = {
     "Supplier Beta": {"cement": 11.00, "drywall": 14.20, "gravel": 35.50},
     "Supplier Gamma": {"cement": 9.95, "drywall": 16.10, "gravel": 30.00}
 }
+
+# --- Helper Function to Clean JSON Metadata ---
+def format_items_payload(payload_string):
+    """Parses raw JSON string into a clean, human-readable list."""
+    try:
+        if not payload_string:
+            return "No items logged"
+        
+        # Load string into a Python dictionary
+        data_dict = json.loads(payload_string)
+        
+        # Format dictionary keys and values into a human-friendly sentence block
+        formatted_lines = [f"• {item.title()}: {details}" for item, details in data_dict.items()]
+        return "\n".join(formatted_lines)
+    except Exception:
+        return str(payload_string) # Fallback to raw text if parsing fails
 
 # --- 5. Application Routing Views ---
 if not st.session_state["customer_id"]:
@@ -198,7 +211,6 @@ else:
                         st.success("✅ Order successfully committed and partitioned to your Customer ID!")
                         st.balloons()
                         
-                        # Clean confirmation and quick-jump button
                         del st.session_state['pending_order']
                         if st.button("📋 Go to My Orders Ledger"):
                             st.session_state["current_view"] = "📊 My Orders & Analytics"
@@ -235,10 +247,26 @@ else:
         if not analytics_loaded:
             st.markdown("### Prototype Template Preview (No Real Orders Yet)")
             df_analytics = pd.DataFrame([
-                {"created_at": "2026-06-01 09:00:00", "supplier": "Supplier Alpha", "total_cost": 0.0, "delivery_date": "2026-06-12", "customer_id": st.session_state["customer_id"]}
+                {"created_at": "2026-06-01 09:00:00", "supplier": "Supplier Alpha", "total_cost": 0.0, "delivery_date": "2026-06-12", "customer_id": st.session_state["customer_id"], "metadata_payload": "{}"}
             ])
             df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
 
+        # --- DATA CLEANING LAYER ---
+        # Apply our helper function to convert the JSON payload into beautiful bullet points
+        df_analytics["Ordered Items"] = df_analytics["metadata_payload"].apply(format_items_payload)
+        
+        # Standardize and clean up database timestamps for the UI grid
+        df_analytics["Order Date"] = df_analytics["created_at"].dt.strftime("%Y-%m-%d %H:%M")
+        
+        # Rename standard metric columns for clean presentation
+        df_analytics = df_analytics.rename(columns={
+            "id": "Order Reference ID",
+            "supplier": "Allocated Supplier",
+            "total_cost": "Total Spend (£)",
+            "delivery_date": "Est. Delivery Date"
+        })
+
+        # --- VISUALIZATION LAYER ---
         if analytics_loaded:
             col1, col2 = st.columns(2)
             
@@ -246,11 +274,11 @@ else:
                 st.markdown("#### Your Spend Velocity")
                 fig_line = px.line(
                     df_analytics, 
-                    x="created_at", 
-                    y="total_cost", 
-                    color="supplier",
+                    x="Order Date", 
+                    y="Total Spend (£)", 
+                    color="Allocated Supplier",
                     title="Order Allocation Streams",
-                    labels={"created_at": "Timestamp", "total_cost": "Cost (£)"},
+                    labels={"Total Spend (£)": "Cost (£)"},
                     markers=True
                 )
                 st.plotly_chart(fig_line, use_container_width=True)
@@ -259,14 +287,25 @@ else:
                 st.markdown("#### Vendor Allocation Share")
                 fig_pie = px.pie(
                     df_analytics, 
-                    names="supplier", 
-                    values="total_cost", 
+                    names="Allocated Supplier", 
+                    values="Total Spend (£)", 
                     title="Where Your Orders Are Routed"
                 )
                 st.plotly_chart(fig_pie, use_container_width=True)
 
             st.subheader("Your Order History Ledger")
+            
+            # Display only the beautiful, renamed columns in the data frame grid
+            display_cols = [
+                "Order Reference ID", 
+                "Order Date", 
+                "Allocated Supplier", 
+                "Ordered Items",       # <--- Our freshly transformed text list!
+                "Total Spend (£)", 
+                "Est. Delivery Date"
+            ]
+            
             st.dataframe(
-                df_analytics[["id", "created_at", "supplier", "total_cost", "delivery_date", "metadata_payload"]], 
+                df_analytics[display_cols], 
                 use_container_width=True
             )
