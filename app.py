@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from supabase import create_client, Client
 import json
+import re
 
 # --- 1. Page Configuration ---
 st.set_page_config(
@@ -98,7 +99,7 @@ else:
             del st.session_state["pending_order"]
         st.rerun()
 
-# --- 4. Mock Supplier API Data ---
+# --- 4. Live PoC Global Inventory & Catalog Matrix ---
 MOCK_SUPPLIERS = {
     "Supplier Alpha": {"cement": 10.50, "drywall": 15.00, "gravel": 32.00},
     "Supplier Beta": {"cement": 11.00, "drywall": 14.20, "gravel": 35.50},
@@ -144,16 +145,26 @@ else:
             else:
                 with st.spinner("Analyzing text and evaluating market inventory..."):
                     
+                    # --- NEW DYNAMIC PARSING ENGINE ---
+                    # Regex scanning looks for numbers directly adjacent to or preceding materials typed
                     parsed_items = []
                     input_lower = user_input.lower()
                     
-                    if "cement" in input_lower:
-                        parsed_items.append({"name": "cement", "quantity": 50})
-                    if "drywall" in input_lower:
-                        parsed_items.append({"name": "drywall", "quantity": 15})
-                    if "gravel" in input_lower:
-                        parsed_items.append({"name": "gravel", "quantity": 10})
-                        
+                    keywords = ["cement", "drywall", "gravel"]
+                    for keyword in keywords:
+                        if keyword in input_lower:
+                            # Search for any digits sequence near the keyword (e.g., "50 bags of cement" or "cement 50")
+                            pattern = rf"(\d+)\s*(?:bags?|sheets?|units?|x)?\s*{keyword}|{keyword}\s*(?:x)?\s*(\d+)"
+                            match = re.search(pattern, input_lower)
+                            
+                            if match:
+                                quantity = int(match.group(1) or match.group(2))
+                            else:
+                                quantity = 10  # Standard smart fallback default quantity if user omitted numbers
+                                
+                            parsed_items.append({"name": keyword, "quantity": quantity})
+                    
+                    # Absolute emergency safety baseline if text block can't map any keywords
                     if not parsed_items:
                         parsed_items = [{"name": "cement", "quantity": 25}]
                         
@@ -183,6 +194,7 @@ else:
                                 items_matched += 1
                                 breakdown[item_name] = f"{qty} x £{unit_price:,.2f}"
                         
+                        # Only return options from suppliers that can fully satisfy the extracted basket
                         if items_matched == len(req_items):
                             compiled_offers.append({
                                 "supplier": supplier,
