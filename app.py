@@ -24,25 +24,65 @@ if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
 else:
     st.sidebar.warning("⚠️ API credentials missing from Secrets.")
 
-# --- 3. Identity & Authentication Layer ---
-st.sidebar.title("🔐 Customer Identity")
+# --- 3. Identity, Registration & Authentication Layer ---
+st.sidebar.title("🔐 Access Control")
 
-# Maintain login state via Streamlit Session State
 if "customer_id" not in st.session_state:
     st.session_state["customer_id"] = None
 
 if not st.session_state["customer_id"]:
-    st.sidebar.info("Please sign in to access the platform.")
-    login_input = st.sidebar.text_input("Enter Customer ID:", placeholder="e.g., CUST-101").strip()
-    if st.sidebar.button("Sign In", type="primary"):
-        if login_input:
-            st.session_state["customer_id"] = login_input
-            st.rerun()
-        else:
-            st.sidebar.error("Please enter a valid ID.")
+    # Toggle between Sign In and Sign Up states
+    auth_mode = st.sidebar.radio("Choose Action:", ["Sign In", "Sign Up / Register"])
+    
+    if auth_mode == "Sign In":
+        st.sidebar.markdown("### Existing Client Login")
+        login_id = st.sidebar.text_input("Enter Customer ID:", placeholder="e.g., CUST-101").strip()
+        
+        if st.sidebar.button("Log In", type="primary"):
+            if not login_id:
+                st.sidebar.error("Please enter your Customer ID.")
+            elif supabase:
+                try:
+                    # Look up if the ID exists in our new customers database table
+                    user_check = supabase.table("customers").select("*").eq("customer_id", login_id).execute()
+                    if user_check.data and len(user_check.data) > 0:
+                        st.session_state["customer_id"] = login_id
+                        st.sidebar.success(f"Welcome back, {user_check.data[0]['company_name']}!")
+                        st.rerun()
+                    else:
+                        st.sidebar.error("❌ Customer ID not found. Please register first.")
+                except Exception as err:
+                    st.sidebar.error(f"Authentication engine failure: {err}")
+                    
+    elif auth_mode == "Sign Up / Register":
+        st.sidebar.markdown("### Create Partner Account")
+        new_id = st.sidebar.text_input("Choose a Customer ID:", placeholder="e.g., BUILD-01").strip()
+        new_company = st.sidebar.text_input("Company Legal Name:", placeholder="e.g., ACME Construction Ltd").strip()
+        new_email = st.sidebar.text_input("Contact Email Address:", placeholder="e.g., procurement@acme.com").strip()
+        
+        if st.sidebar.button("Register Account", type="primary"):
+            if not (new_id and new_company and new_email):
+                st.sidebar.error("All registration fields are required.")
+            elif supabase:
+                try:
+                    # Check if ID is already claimed
+                    duplicate_check = supabase.table("customers").select("*").eq("customer_id", new_id).execute()
+                    if duplicate_check.data and len(duplicate_check.data) > 0:
+                        st.sidebar.error("⚠️ This Customer ID is already taken. Try another.")
+                    else:
+                        # Write the new partner profile credentials straight into the database
+                        reg_response = supabase.table("customers").insert({
+                            "customer_id": new_id,
+                            "company_name": new_company,
+                            "contact_email": new_email
+                        }).execute()
+                        
+                        st.sidebar.success("🎉 Registration complete! You can now switch to 'Sign In'.")
+                except Exception as err:
+                    st.sidebar.error(f"Failed to submit credentials: {err}")
 else:
-    st.sidebar.success(f"Logged in as: **{st.session_state['customer_id']}**")
-    if st.sidebar.button("Sign Out"):
+    st.sidebar.success(f"Active Session: **{st.session_state['customer_id']}**")
+    if st.sidebar.button("Log Out"):
         st.session_state["customer_id"] = None
         if "pending_order" in st.session_state:
             del st.session_state["pending_order"]
@@ -58,7 +98,7 @@ MOCK_SUPPLIERS = {
 # --- 5. Navigation & Core Routing Gated by Auth ---
 if not st.session_state["customer_id"]:
     st.title("📦 Smart Supply Platform")
-    st.warning("🔒 Access Restricted. Please log in via the sidebar identity panel to view your procurement engine.")
+    st.warning("🔒 Access Restricted. Please register an account or log in via the sidebar access panel.")
 else:
     st.sidebar.title("Navigation")
     role = st.sidebar.radio("Select Interface:", ["👤 Customer Portal", "📊 My Orders & Analytics"])
@@ -145,7 +185,6 @@ else:
             if st.button("Confirm and Route Order"):
                 if supabase:
                     try:
-                        # CRITICAL: We inject the active user's customer_id into the payload
                         data, count = supabase.table("order_logs").insert({
                             "customer_id": st.session_state["customer_id"],
                             "supplier": best_deal["supplier"],
@@ -171,7 +210,6 @@ else:
         analytics_loaded = False
         if supabase:
             try:
-                # CRITICAL: Filter database records strictly matching the current customer_id
                 response = supabase.table("order_logs")\
                                    .select("*")\
                                    .eq("customer_id", st.session_state["customer_id"])\
@@ -188,7 +226,6 @@ else:
                 st.sidebar.error(f"Failed to pull active stream: {err}")
                 
         if not analytics_loaded:
-            # Fallback placeholder view if the tenant is brand new with zero entries
             st.markdown("### Prototype Template Preview (No Real Orders Yet)")
             df_analytics = pd.DataFrame([
                 {"created_at": "2026-06-01 09:00:00", "supplier": "Supplier Alpha", "total_cost": 0.0, "delivery_date": "2026-06-12", "customer_id": st.session_state["customer_id"]}
@@ -196,7 +233,6 @@ else:
             df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
 
         if analytics_loaded:
-            # --- VISUALIZATION LAYER ---
             col1, col2 = st.columns(2)
             
             with col1:
@@ -223,7 +259,6 @@ else:
                 st.plotly_chart(fig_pie, use_container_width=True)
 
             st.subheader("Your Order History Ledger")
-            # Formatting table display columns neatly
             st.dataframe(
                 df_analytics[["id", "created_at", "supplier", "total_cost", "delivery_date", "metadata_payload"]], 
                 use_container_width=True
