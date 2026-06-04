@@ -30,8 +30,11 @@ st.sidebar.title("🔐 Access Control")
 if "customer_id" not in st.session_state:
     st.session_state["customer_id"] = None
 
+# Track active view using session state for programmatic jumping
+if "current_view" not in st.session_state:
+    st.session_state["current_view"] = "👤 Customer Portal"
+
 if not st.session_state["customer_id"]:
-    # Toggle between Sign In and Sign Up states
     auth_mode = st.sidebar.radio("Choose Action:", ["Sign In", "Sign Up / Register"])
     
     if auth_mode == "Sign In":
@@ -43,11 +46,10 @@ if not st.session_state["customer_id"]:
                 st.sidebar.error("Please enter your Customer ID.")
             elif supabase:
                 try:
-                    # Look up if the ID exists in our new customers database table
                     user_check = supabase.table("customers").select("*").eq("customer_id", login_id).execute()
                     if user_check.data and len(user_check.data) > 0:
                         st.session_state["customer_id"] = login_id
-                        st.sidebar.success(f"Welcome back, {user_check.data[0]['company_name']}!")
+                        st.session_state["current_view"] = "👤 Customer Portal"
                         st.rerun()
                     else:
                         st.sidebar.error("❌ Customer ID not found. Please register first.")
@@ -65,25 +67,36 @@ if not st.session_state["customer_id"]:
                 st.sidebar.error("All registration fields are required.")
             elif supabase:
                 try:
-                    # Check if ID is already claimed
                     duplicate_check = supabase.table("customers").select("*").eq("customer_id", new_id).execute()
                     if duplicate_check.data and len(duplicate_check.data) > 0:
                         st.sidebar.error("⚠️ This Customer ID is already taken. Try another.")
                     else:
-                        # Write the new partner profile credentials straight into the database
                         reg_response = supabase.table("customers").insert({
                             "customer_id": new_id,
                             "company_name": new_company,
                             "contact_email": new_email
                         }).execute()
                         
-                        st.sidebar.success("🎉 Registration complete! You can now switch to 'Sign In'.")
+                        st.sidebar.success("🎉 Registration complete! Switch to 'Sign In' to log into your workspace.")
                 except Exception as err:
                     st.sidebar.error(f"Failed to submit credentials: {err}")
 else:
     st.sidebar.success(f"Active Session: **{st.session_state['customer_id']}**")
+    
+    # Navigation Radio binded directly to our state tracker
+    st.sidebar.title("Navigation")
+    role = st.sidebar.radio(
+        "Select Interface:", 
+        ["👤 Customer Portal", "📊 My Orders & Analytics"],
+        key="navigation_radio",
+        index=0 if st.session_state["current_view"] == "👤 Customer Portal" else 1
+    )
+    # Sync visual radio selection back to controller state
+    st.session_state["current_view"] = role
+
     if st.sidebar.button("Log Out"):
         st.session_state["customer_id"] = None
+        st.session_state["current_view"] = "👤 Customer Portal"
         if "pending_order" in st.session_state:
             del st.session_state["pending_order"]
         st.rerun()
@@ -95,16 +108,13 @@ MOCK_SUPPLIERS = {
     "Supplier Gamma": {"cement": 9.95, "drywall": 16.10, "gravel": 30.00}
 }
 
-# --- 5. Navigation & Core Routing Gated by Auth ---
+# --- 5. Application Routing Views ---
 if not st.session_state["customer_id"]:
     st.title("📦 Smart Supply Platform")
-    st.warning("🔒 Access Restricted. Please register an account or log in via the sidebar access panel.")
+    st.warning("🔒 Access Restricted. Please register an account or log in via the sidebar access panel to manage orders.")
 else:
-    st.sidebar.title("Navigation")
-    role = st.sidebar.radio("Select Interface:", ["👤 Customer Portal", "📊 My Orders & Analytics"])
-
     # VIEW A: CUSTOMER PORTAL
-    if role == "👤 Customer Portal":
+    if st.session_state["current_view"] == "👤 Customer Portal":
         st.title(f"📦 Smart Procurement Portal")
         st.caption(f"Acting on behalf of tenant: {st.session_state['customer_id']}")
         st.markdown("Submit your material requests naturally. Our AI engine will structure the requirements and match live vendor availability.")
@@ -121,7 +131,6 @@ else:
                 st.error("Please enter a description first.")
             else:
                 with st.spinner("Analyzing text and evaluating market inventory..."):
-                    # --- AI INTERPRETER FRAMEWORK ---
                     mock_ai_extracted_json = {
                         "items": [
                             {"name": "cement", "quantity": 50},
@@ -129,10 +138,8 @@ else:
                         ],
                         "target_delivery": "2026-06-12"
                     }
-                    
                     st.info("💡 **AI Extraction Success:** Unstructured request parsed into standard data models.")
                     
-                    # --- SUPPLIER MATCHING ENGINE ---
                     compiled_offers = []
                     req_items = mock_ai_extracted_json["items"]
                     target_date = mock_ai_extracted_json["target_delivery"]
@@ -164,13 +171,8 @@ else:
                     if compiled_offers:
                         df_offers = pd.DataFrame(compiled_offers)
                         df_offers = df_offers.sort_values(by="total_cost").reset_index(drop=True)
-                        
                         st.subheader("Available Market Options")
-                        st.dataframe(
-                            df_offers[["supplier", "total_cost", "delivery_date"]], 
-                            use_container_width=True
-                        )
-                        
+                        st.dataframe(df_offers[["supplier", "total_cost", "delivery_date"]], use_container_width=True)
                         st.session_state['pending_order'] = df_offers.iloc[0].to_dict()
                     else:
                         st.error("No single supplier has complete stock matching your exact requirements.")
@@ -194,16 +196,21 @@ else:
                         }).execute()
                         
                         st.success("✅ Order successfully committed and partitioned to your Customer ID!")
-                        del st.session_state['pending_order']
                         st.balloons()
+                        
+                        # Clean confirmation and quick-jump button
+                        del st.session_state['pending_order']
+                        if st.button("📋 Go to My Orders Ledger"):
+                            st.session_state["current_view"] = "📊 My Orders & Analytics"
+                            st.rerun()
+                            
                     except Exception as db_err:
                         st.error(f"Failed to log record via Supabase API: {db_err}")
                 else:
                     st.error("Supabase API Client uninitialized. Cannot write transaction log.")
 
-
     # VIEW B: USER SPECIFIC ORDERS & ANALYTICS
-    elif role == "📊 My Orders & Analytics":
+    elif st.session_state["current_view"] == "📊 My Orders & Analytics":
         st.title("📊 Personal Procurement Dashboard")
         st.markdown(f"Displaying historical procurement flows and analytics exclusively for: **{st.session_state['customer_id']}**")
         
