@@ -4,3 +4,5 @@ google-generativeai
 supabase
 sqlalchemy
 psycopg2-binary
+google-genai
+pydantic

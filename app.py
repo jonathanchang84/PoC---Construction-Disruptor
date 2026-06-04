@@ -4,6 +4,9 @@ import plotly.express as px
 from supabase import create_client, Client
 import json
 import re
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
 
 # --- 1. Page Configuration ---
 st.set_page_config(
@@ -13,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. Secure Web API Connection Layer ---
+# --- 2. Secure Web API Connection Layer (Supabase & Gemini) ---
 supabase: Client = None
 if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
     try:
@@ -23,9 +26,24 @@ if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
         st.sidebar.error("🔌 Supabase Connection Failed")
         st.sidebar.caption(f"Error details: {e}")
 else:
-    st.sidebar.warning("⚠️ API credentials missing from Secrets.")
+    st.sidebar.warning("⚠️ Supabase credentials missing from Secrets.")
 
-# --- 3. Identity, Registration & Authentication Layer ---
+gemini_ready = False
+if "GEMINI_API_KEY" in st.secrets:
+    gemini_ready = True
+    st.sidebar.success("🤖 Gemini AI Engine Initialized")
+else:
+    st.sidebar.error("❌ GEMINI_API_KEY missing from Secrets.")
+
+# --- 3. Structured Data Models for LLM Enforcement ---
+class MaterialItem(BaseModel):
+    name: str = Field(description="The exact material name or its closest matched equivalent from the provided catalog list.")
+    quantity: int = Field(description="The structural volume or number of units requested by the client.")
+
+class ProcurementIntent(BaseModel):
+    items: list[MaterialItem] = Field(description="A collection of structured items parsed from the unstructured text.")
+
+# --- 4. Identity & Authentication Layer ---
 st.sidebar.title("🔐 Access Control")
 
 if "customer_id" not in st.session_state:
@@ -82,7 +100,6 @@ if not st.session_state["customer_id"]:
                     st.sidebar.error(f"Failed to submit credentials: {err}")
 else:
     st.sidebar.success(f"Active Session: **{st.session_state['customer_id']}**")
-    
     st.sidebar.title("Navigation")
     role = st.sidebar.radio(
         "Select Interface:", 
@@ -101,27 +118,25 @@ else:
 
 # --- Helper Function to Clean JSON Metadata ---
 def format_items_payload_html(payload_string):
-    """Parses raw JSON string into a clean layout utilizing HTML breaks for explicit line rendering."""
     try:
         if not payload_string:
             return "No items logged"
-        
         data_dict = json.loads(payload_string)
         formatted_lines = [f"• {item.title()}: {details}" for item, details in data_dict.items()]
         return "<br>".join(formatted_lines)
     except Exception:
         return str(payload_string)
 
-# --- 4. Application Routing Views ---
+# --- 5. Application Routing Views ---
 if not st.session_state["customer_id"]:
     st.title("📦 Smart Supply Platform")
-    st.warning("🔒 Access Restricted. Please register an account or log in via the sidebar access panel to manage orders.")
+    st.warning("🔒 Access Restricted. Please log in via the sidebar access panel to manage orders.")
 else:
     # VIEW A: CUSTOMER PORTAL
     if st.session_state["current_view"] == "👤 Customer Portal":
         st.title(f"📦 Smart Procurement Portal")
         st.caption(f"Acting on behalf of tenant: {st.session_state['customer_id']}")
-        st.markdown("Submit your material requests naturally. Our AI engine will structure the requirements and match live vendor availability.")
+        st.markdown("Submit your material requests naturally. Our Gemini AI engine will structure the requirements and match live vendor availability.")
         
         with st.expander("📖 View Active Material Catalog (Soft-Coded from Supabase)"):
             if supabase:
@@ -137,7 +152,7 @@ else:
         st.subheader("What do you need today?")
         user_input = st.text_area(
             "Enter project requirements:",
-            placeholder="e.g., I want nails, 500 of them...",
+            placeholder="e.g., I want nails, 500 of them, and send over around 30 sheets of drywall too...",
             height=120,
             key="customer_material_input"
         )
@@ -146,11 +161,14 @@ else:
             if not user_input.strip():
                 st.error("Please enter a description first.")
             elif not supabase:
-                st.error("Supabase connection missing. Cannot query dynamic inventory.")
+                st.error("Supabase connection missing.")
+            elif not gemini_ready:
+                st.error("Gemini client configuration missing. Check secrets setup.")
             else:
-                with st.spinner("Analyzing text and pulling dynamic supplier inventory data..."):
+                with st.spinner("Invoking Gemini 2.5 Flash to parse semantic intent..."):
                     
                     try:
+                        # Fetch the target product keywords from Supabase to inform Gemini
                         db_query = supabase.table("supplier_inventory").select("supplier_name, item_name, unit_price").execute()
                         
                         if not db_query.data:
@@ -167,51 +185,44 @@ else:
                                 dynamic_suppliers[sup] = {}
                             dynamic_suppliers[sup][item] = price
                             
-                        # --- BULLETPROOF PROXIMITY SCANNED PARSING ENGINE ---
-                        clean_text = re.sub(r'[^\w\s]', ' ', user_input.lower())
-                        tokens = clean_text.split()
-                        
                         known_db_items = list(set([row['item_name'] for row in db_query.data]))
-                        extracted_quantities = {}
-                        matched_keywords_from_numbers = set()
                         
-                        # STEP 1: Process every number to find its adjacent material
-                        for idx, token in enumerate(tokens):
-                            if token.isdigit():
-                                qty = int(token)
-                                
-                                # Look up to 3 tokens backward and 3 tokens forward
-                                lookback = tokens[max(0, idx-3):idx]
-                                lookforward = tokens[idx+1:idx+4]
-                                neighborhood = " ".join(lookback + lookforward)
-                                
-                                for keyword in known_db_items:
-                                    # Check for partial or full match in the immediate neighborhood
-                                    if keyword in neighborhood or any(word in neighborhood for word in keyword.split()):
-                                        extracted_quantities[keyword] = qty
-                                        matched_keywords_from_numbers.add(keyword)
+                        # --- GENAI EXTRACTION FLOW ---
+                        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
                         
-                        # STEP 2: Only apply fallback defaults for items mentioned entirely WITHOUT numbers
-                        for keyword in known_db_items:
-                            if keyword in clean_text and keyword not in matched_keywords_from_numbers:
-                                # User named a material but didn't write a number anywhere near it
-                                extracted_quantities[keyword] = 10
-                                
-                        # Package parsed results into output dictionary
-                        parsed_items = [{"name": name, "quantity": qty} for name, qty in extracted_quantities.items()]
-                                
-                        if not parsed_items:
-                            st.warning("⚠️ No catalog materials identified in your request text. Please mention specific items from the catalog.")
-                            st.stop()
-                            
+                        system_context_prompt = f"""
+                        You are a construction logistics data extraction parser. Your task is to process user requirements and extract materials.
+                        You must match user intents to these specific system catalog items if they are synonyms or semantic fits: {known_db_items}.
+                        
+                        Rules:
+                        1. If the user uses a conversational phrase like "I want nails, 500 of them", resolve that to quantity: 500, item name: 'nails'.
+                        2. If they type a synonym (e.g. 'timber sheets' instead of 'osb flooring sheets'), normalize it to the correct catalog term.
+                        3. Be precise with quantities.
+                        """
+                        
+                        response = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=f"Extract from this string: {user_input}",
+                            config=types.GenerateContentConfig(
+                                system_instruction=system_context_prompt,
+                                response_mime_type="application/json",
+                                response_schema=ProcurementIntent,
+                                temperature=0.1
+                            ),
+                        )
+                        
+                        # Load validated json output back into app dictionary workflow
+                        llm_payload = json.loads(response.text)
+                        
                         mock_ai_extracted_json = {
-                            "items": parsed_items,
+                            "items": llm_payload.get("items", []),
                             "target_delivery": "2026-06-12"
                         }
                         
-                        st.info("💡 **AI Extraction Success:** Unstructured request parsed into standard data models.")
+                        st.info("💡 **Gemini Extraction Success:** Context-aware semantic parse completed.")
                         st.json(mock_ai_extracted_json)
                         
+                        # --- VENDOR MATCHING ENGINE ---
                         compiled_offers = []
                         req_items = mock_ai_extracted_json["items"]
                         target_date = mock_ai_extracted_json["target_delivery"]
@@ -221,7 +232,7 @@ else:
                             breakdown = {}
                             
                             for item in req_items:
-                                item_name = item["name"].lower()
+                                item_name = item["name"].lower().strip()
                                 qty = item["quantity"]
                                 
                                 if item_name in inventory:
@@ -252,7 +263,7 @@ else:
                             st.error("Could not construct allocation options.")
                             
                     except Exception as pipeline_error:
-                        st.error(f"Inventory extraction processing loop failed: {pipeline_error}")
+                        st.error(f"Gemini processing loop failed: {pipeline_error}")
 
         # Checkout Engine
         if 'pending_order' in st.session_state:
