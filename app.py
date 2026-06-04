@@ -131,7 +131,6 @@ else:
         
         st.subheader("What do you need today?")
         
-        # FIXED: Hooking an explicit key allows us to empty out or control stale states programmatically
         user_input = st.text_area(
             "Enter project requirements:",
             placeholder="e.g., I'm looking for 50 bags of cement and 15 sheets of drywall by next Friday...",
@@ -145,8 +144,6 @@ else:
             else:
                 with st.spinner("Analyzing text and evaluating market inventory..."):
                     
-                    # DYNAMIC LOGIC UPDATE: Instead of forcing static mock entries, 
-                    # we dynamically adapt extraction strings to match what the client actually wrote.
                     parsed_items = []
                     input_lower = user_input.lower()
                     
@@ -157,7 +154,6 @@ else:
                     if "gravel" in input_lower:
                         parsed_items.append({"name": "gravel", "quantity": 10})
                         
-                    # Default safety fallback loop if user typed something completely random
                     if not parsed_items:
                         parsed_items = [{"name": "cement", "quantity": 25}]
                         
@@ -225,14 +221,12 @@ else:
                         
                         st.success("✅ Order successfully committed and partitioned to your Customer ID!")
                         
-                        # THE CRITICAL CLEANUP: Wiping data caches completely to prevent stale memory duplications
+                        # Clean up the pending cache dictionary safely
                         del st.session_state['pending_order']
-                        if "customer_material_input" in st.session_state:
-                            st.session_state["customer_material_input"] = ""
-                            
+                        
                         st.balloons()
                         
-                        # Instantly switch view state to let user review their clean data ledger
+                        # Force app context layout reset and instantly jump to tracking tab
                         st.session_state["current_view"] = "📊 My Orders & Analytics"
                         st.rerun()
                             
