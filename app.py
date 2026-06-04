@@ -106,15 +106,16 @@ MOCK_SUPPLIERS = {
 }
 
 # --- Helper Function to Clean JSON Metadata ---
-def format_items_payload(payload_string):
-    """Parses raw JSON string into a clean bulleted list with line breaks."""
+def format_items_payload_html(payload_string):
+    """Parses raw JSON string into a clean layout utilizing HTML breaks for explicit line rendering."""
     try:
         if not payload_string:
             return "No items logged"
         
         data_dict = json.loads(payload_string)
+        # Using <br> forces a visual line break inside markdown table formats
         formatted_lines = [f"• {item.title()}: {details}" for item, details in data_dict.items()]
-        return "\n".join(formatted_lines)
+        return "<br>".join(formatted_lines)
     except Exception:
         return str(payload_string)
 
@@ -245,8 +246,8 @@ else:
             df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
 
         # --- DATA CLEANING LAYER ---
-        # 1. Format the items into strings with raw newlines
-        df_analytics["Items"] = df_analytics["metadata_payload"].apply(format_items_payload)
+        # 1. Format the items with explicit HTML breaks (<br>)
+        df_analytics["Items"] = df_analytics["metadata_payload"].apply(format_items_payload_html)
         
         # 2. Extract and format a dedicated, clean customer-facing Order Date
         df_analytics["Order Date"] = df_analytics["created_at"].dt.strftime("%d %b %Y, %H:%M")
@@ -254,7 +255,7 @@ else:
         # 3. Rename metric headers cleanly
         df_analytics = df_analytics.rename(columns={
             "supplier": "Allocated Supplier",
-            "total_cost": "Total Spend (£)",
+            "total_cost": "Total Spend",
             "delivery_date": "Est. Delivery Date"
         })
 
@@ -267,10 +268,10 @@ else:
                 fig_line = px.line(
                     df_analytics, 
                     x="Order Date", 
-                    y="Total Spend (£)", 
+                    y="Total Spend", 
                     color="Allocated Supplier",
                     title="Order Allocation Streams",
-                    labels={"Total Spend (£)": "Cost (£)"},
+                    labels={"Total Spend": "Cost (£)"},
                     markers=True
                 )
                 st.plotly_chart(fig_line, use_container_width=True)
@@ -280,39 +281,28 @@ else:
                 fig_pie = px.pie(
                     df_analytics, 
                     names="Allocated Supplier", 
-                    values="Total Spend (£)", 
+                    values="Total Spend", 
                     title="Where Your Orders Are Routed"
                 )
                 st.plotly_chart(fig_pie, use_container_width=True)
 
             st.subheader("Your Order History Ledger")
             
-            # Filter layout to ONLY include the columns the customer needs to see
+            # Select and organize the exact customer-facing columns
             display_cols = [
                 "Order Date", 
                 "Allocated Supplier", 
                 "Items", 
-                "Total Spend (£)", 
+                "Total Spend", 
                 "Est. Delivery Date"
             ]
             
-            # Format the numeric column cleanly as currency text before rendering
             df_display = df_analytics[display_cols].copy()
-            df_display["Total Spend (£)"] = df_display["Total Spend (£)"].apply(lambda x: f"£{x:,.2f}" if isinstance(x, (int, float)) else x)
+            df_display["Total Spend"] = df_display["Total Spend"].apply(lambda x: f"£{x:,.2f}" if isinstance(x, (int, float)) else x)
             df_display["Est. Delivery Date"] = df_display["Est. Delivery Date"].astype(str)
 
-            # --- UI RENDERING CONFIGURATION ---
-            # Inject CSS to force HTML tables to preserve the newline format inside the cell box
-            st.markdown(
-                """
-                <style>
-                table td {
-                    white-space: pre-line !important;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-            
-            # Render clean, index-free table layout
-            st.table(df_display)
+            # --- THE DECISIVE FIX: MARKDOWN HTML TABLE GENERATION ---
+            # By converting to a markdown string table with index=False, we fully drop the index column.
+            # Passing unsafe_allow_html=True commands Streamlit to execute the <br> tags natively.
+            markdown_table = df_display.to_markdown(index=False)
+            st.markdown(markdown_table, unsafe_allow_html=True)
