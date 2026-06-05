@@ -1,40 +1,20 @@
-name: Python Code Verification Suite
-
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-
-jobs:
-  run-tests:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Check out repository code
-      uses: actions/checkout@v4
-
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    # 🔍 DIAGNOSTIC STEP: This will print your exact repository structure to the logs
-    - name: Debug and List Directory Structure
-      run: |
-        echo "=== Current Working Directory ==="
-        pwd
-        echo "=== Directory Contents ==="
-        ls -R
-
+    # Step 5: Dynamically locate and inject mock secrets regardless of folder casing
     - name: Inject Mock Streamlit Secrets
       run: |
         mkdir -p .streamlit
-        cp tests/mock_secrets.toml .streamlit/secrets.toml
-
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
+        
+        # Use find to locate the file safely regardless of whether the folder is named 'tests' or 'Tests'
+        MOCK_PATH=$(find . -iname "mock_secrets.toml" -print -quit)
+        
+        if [ -n "$MOCK_PATH" ]; then
+          echo "Found mock secrets at: $MOCK_PATH"
+          cp "$MOCK_PATH" .streamlit/secrets.toml
+        else
+          echo "ERROR: mock_secrets.toml could not be found anywhere in the repository layout!"
+          echo "Printing repository directory contents for debugging:"
+          ls -R
+          exit 1
+        fi      with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
