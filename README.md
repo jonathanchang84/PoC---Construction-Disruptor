@@ -7,6 +7,8 @@ Integrated with Gemini LLM so orders can be placed in a natural tone rather than
 Front End - Hosted on Streamlit, Language: Python
 Back End - Hosted on Suprabase (Psybase - Slowly changing dimensions), Language SQL
 
+Connection mechanism: API
+
 Unit case integration included via github workflows
 
 https://poc---construction-disruptor-gpnpwremppmzfds9mfcun3.streamlit.app
