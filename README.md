@@ -5,6 +5,7 @@ PoC personal project. Portal for customers and internal operations to order, adm
 Integrated with Gemini LLM so orders can be placed in a natural tone rather than from an item list, as well as being able to scope out the needs for a project to order
 
 Front End - Hosted on Streamlit, Language: Python
+
 Back End - Hosted on Suprabase (Psybase - Slowly changing dimensions), Language SQL
 
 Connection mechanism: API
