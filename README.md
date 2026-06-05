@@ -4,17 +4,50 @@ PoC personal project. Portal for customers and internal operations to order, adm
 
 Integrated with Gemini LLM so orders can be placed in a natural tone rather than from an item list, as well as being able to scope out the needs for a project to order
 
-Front End - Hosted on Streamlit, Language: Python
-
-Back End - Hosted on Suprabase (Psybase - Slowly changing dimensions), Language SQL
-
-Connection mechanism: API
-
-Unit case integration included via github workflows
-
 https://poc---construction-disruptor-gpnpwremppmzfds9mfcun3.streamlit.app
 
 Note: There are instances where the app behind the URL is dormant. If it is and you want to see, just message me
+
+## 🏗️ Project Architecture
+
+This application is built as a lightweight, real-time financial dashboard leveraging a modern python-native stack. It is designed to be highly reactive, secure, and compatible with the latest Python runtime environments.
+
+### ⚙️ Tech Stack & Infrastructure
+* **Frontend & Application Framework:** [Streamlit](https://streamlit.io/) (utilizing native, safe UI component layout mapping).
+* **Data Manipulation:** [Pandas](https://pandas.pydata.org/) (for in-memory tabular data cross-rate generation).
+* **Data Fetching:** Python `requests` communicating with RESTful endpoints.
+* **Production Hosting:** [Streamlit Community Cloud](https://streamlit.io/cloud) integrated via GitHub CI/CD.
+
+### 🔄 Data Flow & Logic Engine
+
+The system architecture follows a unidirectional data flow to ensure fast load times and minimal API overhead:
+
+1.  **API Ingestion Layer:** When a user loads the page, the application sends an asynchronous GET request to the Open Exchange Rates API (`open.er-api.com`). 
+    
+2.  **Server-Side Caching (`st.cache_data`):** To prevent rate-limiting and ensure institutional-grade loading speeds, the live data payload is cached securely for **30 minutes (1800 seconds)**. Sub-second currency conversions happen instantly entirely in-memory without re-pinging the external API.
+
+3.  **State Management & Session Routing:** User interactions (such as updating volume or triggering the `⇄` swap button) mutate variables stored within `st.session_state`. This forces an isolated runtime rerun to re-evaluate mathematical cross-rates without destroying user preferences.
+
+4.  **Cross-Rate Computation Engine:**
+    Because the base API endpoint normalizes all global fiat assets against the US Dollar ($USD$), the calculation layer uses a standard triangular arbitrage formula to compute any random currency pair ($A \rightarrow B$):
+    
+    $$\text{Converted Amount} = \left( \frac{\text{Amount}}{\text{Rate}_A} \right) \times \text{Rate}_B$$
+
+5.  **Native Rendering Engine:** The presentation layer processes the updated metrics and feeds them dynamically into native UI nodes (`st.metric` and `st.dataframe`), perfectly optimizing for both light and dark mode browsers securely.
+
+### 🗺️ System Topology
+
+```text
+ [ User Browser ] 
+        │
+        ▼ (Interactions: Swaps / Inputs)
+ [ Streamlit Interface UI ] ──(Reads State)──► [ Session State Machine ]
+        │                                               │
+        ▼ (If Cache Expired / 30m)                     ▼ (Triggers)
+ [ Memory Cache Logic ] ◄───────────────────────── [ Math Engine ]
+        │                                        (Triangular Conversion)
+        ▼ 
+ [ Live Exchange Rate API ]
 
 ## Testing Framework
 
