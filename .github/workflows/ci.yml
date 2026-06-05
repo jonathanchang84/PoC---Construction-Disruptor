@@ -1,0 +1,50 @@
+name: Python Code Verification Suite
+
+# Trigger this workflow on every push or PR to your main branch
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Clone your repository onto the GitHub runner server
+    - name: Check out repository code
+      uses: actions/checkout@v4
+
+    # Step 2: Provision a clean Python execution environment
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-node-version: '3.11'
+
+    # Step 3: Cache pip dependencies to make your pipeline run faster
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    # Step 4: Install your app requirements + testing frameworks
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-mock
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    # Step 5: Inject mock secrets so Streamlit initialization clauses don't throw KeyErrors
+    - name: Inject Mock Streamlit Secrets
+      run: |
+        mkdir -p .streamlit
+        cp tests/mock_secrets.toml .streamlit/secrets.toml
+
+    # Step 6: Execute the test suite
+    - name: Run pytest validation matrix
+      run: |
+        python -m pytest tests/ --verbose
