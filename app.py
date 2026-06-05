@@ -114,19 +114,29 @@ if not st.session_state["user_id"]:
         if st.sidebar.button("Verify & Open Console", type="primary"):
             if not ops_user_id:
                 st.sidebar.error("Please input an authorized Operator ID.")
+            elif supabase:
+                try:
+                    # SECURE VERIFICATION STEP: Querying our new operations database registry table
+                    ops_check = supabase.table("operations_team").select("*").eq("operator_id", ops_user_id).execute()
+                    
+                    if ops_check.data and len(ops_check.data) > 0:
+                        operator_data = ops_check.data[0]
+                        st.session_state["user_id"] = ops_user_id
+                        st.session_state["user_role"] = "operations"
+                        st.session_state["current_view"] = "📋 Order Overview"
+                        st.sidebar.success(f"Welcome back, {operator_data['operator_name']}!")
+                        st.rerun()
+                    else:
+                        st.sidebar.error("❌ Access Denied: Unrecognized Operator Badge ID.")
+                except Exception as err:
+                    st.sidebar.error(f"Fulfillment auth registry error: {err}")
             else:
-                # For PoC testing purposes, allows entry and tracks ID. 
-                # (Can easily map to an 'operations_team' table in Supabase later)
-                st.session_state["user_id"] = ops_user_id
-                st.session_state["user_role"] = "operations"
-                st.session_state["current_view"] = "📋 Order Overview"
-                st.rerun()
+                st.sidebar.error("Database layer disconnected. Cannot verify operator badge.")
 else:
     # --- Authenticated User Layout Customization Matrix ---
     st.sidebar.success(f"Session: **{st.session_state['user_id']}** ({st.session_state['user_role'].upper()})")
     st.sidebar.title("Navigation")
     
-    # Restrict interface visualization mapping vectors dynamically based on security role
     if st.session_state["user_role"] == "operations":
         view_options = ["📋 Order Overview"]
     else:
