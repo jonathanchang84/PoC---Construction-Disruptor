@@ -103,10 +103,9 @@ else:
     st.sidebar.success(f"Active Session: **{st.session_state['customer_id']}**")
     st.sidebar.title("Navigation")
     
-    # Restored "⚙️ Operations Console" into the UI configuration map array
-    view_options = ["👤 Customer Portal", "📊 My Orders & Analytics", "⚙️ Operations Console"]
+    # Updated label here to "📋 Order Overview"
+    view_options = ["👤 Customer Portal", "📊 My Orders & Analytics", "📋 Order Overview"]
     
-    # Calculate the safe current index for reruns
     current_idx = 0
     if st.session_state["current_view"] in view_options:
         current_idx = view_options.index(st.session_state["current_view"])
@@ -430,21 +429,19 @@ else:
             st.markdown(html_table, unsafe_allow_html=True)
 
     # -------------------------------------------------------------
-    # VIEW C: OPERATIONS CONSOLE (RESTORED)
+    # VIEW C: ORDER OVERVIEW INTERFACE (RELABELED)
     # -------------------------------------------------------------
-    elif st.session_state["current_view"] == "⚙️ Operations Console":
-        st.title("⚙️ Operations Management Center")
-        st.markdown("Global administration cockpit for tracking across all tenants, fulfillment logs, and managing platform supplier states.")
+    elif st.session_state["current_view"] == "📋 Order Overview":
+        st.title("📋 Master Order Overview")
+        st.markdown("Global administration platform matrix for managing transactions, fulfillment pipelines, and monitoring cross-tenant supply workflows.")
         
         if supabase:
             try:
-                # Retrieve the full global log database table
                 global_query = supabase.table("order_logs").select("*").order("created_at", desc=True).execute()
                 
                 if global_query.data:
                     df_global = pd.DataFrame(global_query.data)
                     
-                    # KPIs Metrics row
                     m1, m2, m3 = st.columns(3)
                     m1.metric("Global Gross Routed Volumes", f"£{df_global['total_cost'].sum():,.2f}")
                     m2.metric("Total Platform Transactions", len(df_global))
@@ -453,7 +450,6 @@ else:
                     st.write("---")
                     st.subheader("Global Order Fulfillment Audit Stream")
                     
-                    # Formatting data elements for raw dataframes outputs
                     df_global["Items Requested"] = df_global["metadata_payload"].apply(format_items_payload_html)
                     df_global["Timestamp"] = pd.to_datetime(df_global["created_at"]).dt.strftime("%Y-%m-%d %H:%M")
                     
