@@ -1,56 +1,51 @@
-name: Updated Construction Disruptor Verification Suite
+# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: Python application
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ "main" ]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+permissions:
+  contents: read
 
 jobs:
-  run-tests:
+  build:
+
     runs-on: ubuntu-latest
 
     steps:
-    - name: Check out repository code
-      uses: actions/checkout@v4
+    # 1. Check out the repository using updated Node 24 compatible actions
+    - name: Checkout Code
+      uses: actions/checkout@v4.2.2
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
+    # 2. Set up Python environment using updated Node 24 compatible actions
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5.3.0
       with:
-        python-version: '3.11'
+        python-version: "3.13"
 
-    - name: Inject Mock Streamlit Secrets
-      run: |
-        mkdir -p .streamlit
-        cat << 'EOF' > .streamlit/secrets.toml
-        SUPABASE_URL = "https://mockinstance.supabase.co"
-        SUPABASE_KEY = "mock-api-key-string"
-        GEMINI_API_KEY = "mock-gemini-key-string"
-        EOF
-        echo "✅ Dynamic mock secrets successfully injected into .streamlit/secrets.toml"
-
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
+    # 3. Leverage caching to speed up your pipeline execution runs
+    - name: Cache Pip Packages
+      uses: actions/cache@v4.2.0
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-
 
+    # 4. Install project dependencies
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-mock
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    - name: Run pytest validation matrix
+    # 5. Execute the entire 11-point Pytest Matrix
+    - name: Test with pytest
       run: |
-        if [ -d tests ]; then
-          echo "🚀 Found 'tests/' directory. Executing test suite..."
-          python -m pytest tests/ --verbose
-        else
-          echo "⚠️ No 'tests/' directory found in workspace. Skipping testing matrix cleanly."
-        fi
+        python -m pytest . --verbose
