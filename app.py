@@ -348,14 +348,14 @@ else:
                         st.error(f"Failed to submit log row: {db_err}")
 
     # -------------------------------------------------------------
-    # VIEW B: CUSTOMER SPECIFIC ORDERS & ANALYTICS (Cancellation Allowed Here)
+    # VIEW B: CUSTOMER SPECIFIC ORDERS & ANALYTICS
     # -------------------------------------------------------------
     elif st.session_state["current_view"] == "📊 My Orders & Analytics":
         st.title("📊 Personal Procurement Dashboard")
         st.markdown(f"Displaying historical procurement flows for tenant: **{st.session_state['user_id']}**")
         
         analytics_loaded = False
-        df_raw_backup = None # Local reference for processing cancellations
+        df_raw_backup = None
         
         if supabase:
             try:
@@ -404,11 +404,9 @@ else:
             )
             st.markdown(df_display.to_html(index=False, escape=False, classes="custom-ledger-table"), unsafe_allow_html=True)
 
-            # --- DYNAMIC CANCELLATION ENGINE CONTROL BLOCK ---
             st.write("---")
             st.subheader("🛠️ Order Management Actions")
             
-            # Filter for orders that are currently in 'Order Placed', 'Ordered', or 'Processing' state
             cancel_eligible_states = ["Order Placed", "Ordered", "Processing"]
             df_eligible = df_raw_backup[df_raw_backup["status"].isin(cancel_eligible_states)]
             
@@ -423,13 +421,11 @@ else:
                         active_cancel_rec = df_eligible[df_eligible["order_no"] == target_cancel_no].iloc[0]
                         now_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
                         
-                        # STEP A: Expire the currently live visible state row
                         supabase.table("order_logs_scd").update({
                             "is_current": False,
                             "valid_to": now_timestamp
                         }).eq("order_no", int(target_cancel_no)).eq("is_current", True).execute()
                         
-                        # STEP B: Insert the completely new status row entry mapping structural history lines
                         supabase.table("order_logs_scd").insert({
                             "order_no": int(target_cancel_no),
                             "customer_id": str(active_cancel_rec["customer_id"]),
@@ -440,7 +436,7 @@ else:
                             "status": "Cancelled",
                             "valid_from": now_timestamp,
                             "is_current": True,
-                            "modified_by": st.session_state["user_id"] # Saved context user string identity
+                            "modified_by": st.session_state["user_id"]
                         }).execute()
                         
                         st.success(f"🎉 Order #{target_cancel_no} successfully cancelled. Historical ledger balances updated.")
@@ -464,25 +460,66 @@ else:
                 if global_query.data:
                     df_global = pd.DataFrame(global_query.data)
                     
+                    # --- DYNAMIC MATRIX TABLE MULTI-FILTERS BLOCK ---
+                    st.markdown("### 🔍 Live Data Stream Filtering")
+                    f_col1, f_col2 = st.columns(2)
+                    
+                    # 1. Filter Matrix Vector A: Client ID Selection Vector
+                    unique_clients = sorted(df_global["customer_id"].unique().tolist())
+                    selected_clients = f_col1.multiselect(
+                        "Filter by Client ID:", 
+                        options=unique_clients,
+                        placeholder="All Clients Visible"
+                    )
+                    
+                    # 2. Filter Matrix Vector B: Status Lifecycle Selection Vector
+                    unique_statuses = sorted(df_global["status"].unique().tolist())
+                    selected_statuses = f_col2.multiselect(
+                        "Filter by Lifecycle Status:", 
+                        options=unique_statuses,
+                        placeholder="All Statuses Visible"
+                    )
+                    
+                    # Apply runtime matrix slicing vectors locally
+                    df_filtered = df_global.copy()
+                    if selected_clients:
+                        df_filtered = df_filtered[df_filtered["customer_id"].isin(selected_clients)]
+                    if selected_statuses:
+                        df_filtered = df_filtered[df_filtered["status"].isin(selected_statuses)]
+                        
+                    # Calculate system summary metrics using the filtered dataset dynamically
                     m1, m2, m3 = st.columns(3)
-                    m1.metric("Global Gross Routed Volumes", f"£{df_global['total_cost'].sum():,.2f}")
-                    m2.metric("Total Platform Transactions", len(df_global))
-                    m3.metric("Unique Customer Entities Active", df_global['customer_id'].nunique())
+                    m1.metric("Global Gross Routed Volumes", f"£{df_filtered['total_cost'].sum():,.2f}")
+                    m2.metric("Total Platform Transactions", len(df_filtered))
+                    m3.metric("Unique Customer Entities Active", df_filtered['customer_id'].nunique())
                     
                     st.write("---")
                     st.subheader("Global Order Fulfillment Audit Stream")
                     
-                    df_global["Status Tracker"] = df_global["status"].apply(render_status_pill_html)
-                    df_global["Items Requested"] = df_global["metadata_payload"].apply(format_items_payload_html)
-                    df_global["Timestamp"] = pd.to_datetime(df_global["valid_from"]).dt.strftime("%Y-%m-%d %H:%M")
+                    # Check if filters returned empty sets
+                    if not df_filtered.empty:
+                        df_filtered["Status Tracker"] = df_filtered["status"].apply(render_status_pill_html)
+                        df_filtered["Items Requested"] = df_filtered["metadata_payload"].apply(format_items_payload_html)
+                        df_filtered["Timestamp"] = pd.to_datetime(df_filtered["valid_from"]).dt.strftime("%Y-%m-%d %H:%M")
+                        
+                        admin_display_cols = ["order_no", "Timestamp", "customer_id", "supplier", "Items Requested", "total_cost", "delivery_date", "Status Tracker", "modified_by"]
+                        df_admin_view = df_filtered[admin_display_cols].copy()
+                        df_admin_view.columns = ["Order No", "Last Updated", "Client ID", "Fulfillment Supplier", "Items Extracted", "Total Valuation", "Est Delivery Target", "Current Status", "Last Modified By"]
+                        
+                        st.markdown(
+                            """
+                            <style>
+                            .custom-ledger-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-family: sans-serif; }
+                            .custom-ledger-table th { background-color: #f0f2f6; color: #31333F; text-align: left; padding: 12px; border-bottom: 2px solid #e6e8f1; }
+                            .custom-ledger-table td { padding: 12px; border-bottom: 1px solid #e6e8f1; vertical-align: top; }
+                            </style>
+                            """, unsafe_allow_html=True
+                        )
+                        st.markdown(df_admin_view.to_html(index=False, escape=False, classes="custom-ledger-table"), unsafe_allow_html=True)
+                    else:
+                        st.warning("⚠️ No records match the active filter criteria combination.")
                     
-                    admin_display_cols = ["order_no", "Timestamp", "customer_id", "supplier", "Items Requested", "total_cost", "delivery_date", "Status Tracker", "modified_by"]
-                    df_admin_view = df_global[admin_display_cols].copy()
-                    df_admin_view.columns = ["Order No", "Last Updated", "Client ID", "Fulfillment Supplier", "Items Extracted", "Total Valuation", "Est Delivery Target", "Current Status", "Last Modified By"]
-                    
-                    st.markdown(df_admin_view.to_html(index=False, escape=False, classes="custom-ledger-table"), unsafe_allow_html=True)
-                    
-                    # Administration interactive state engine modifier block
+                    # Administration interactive state engine modifier block (uses full global set to find targets easily)
                     st.write("---")
                     st.subheader("🛠️ Operations Fulfillment Control (SCD Type 2 Audit Logging)")
                     st.markdown("Updating status fields here will expire the active tracking record and append a fresh historical row log.")
