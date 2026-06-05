@@ -48,7 +48,7 @@ The system architecture follows a unidirectional data flow to ensure fast load t
         │                                        (Triangular Conversion)
         ▼ 
  [ Live Exchange Rate API ]
-'''
+###
 
 
 ## Testing Framework
