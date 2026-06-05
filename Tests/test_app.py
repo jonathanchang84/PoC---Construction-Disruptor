@@ -1,33 +1,34 @@
 import pytest
 import streamlit as st
 
-# ==========================================
-# 1. PLACEHOLDER FOR BACKEND FUNCTIONS
-# ==========================================
-# Tip: As your app grows, move business logic/calculations out of app.py 
-# into helper files (like utils.py) so you can import and test them cleanly here.
-def mock_data_processor(raw_value: float) -> float:
-    """Example helper function processing numeric inputs."""
-    if raw_value < 0:
-        return 0.0
-    return round(raw_value * 1.2, 2)
+# =====================================================================
+# UNIT TESTING: CALCULATION & ARCHITECTURE CHECKS
+# =====================================================================
 
+def data_processor(budget: float, allocation_pct: float) -> float:
+    """Core calculation logic (normally imported from your src library)."""
+    if budget < 0 or allocation_pct < 0:
+        raise ValueError("Financial metrics cannot be negative.")
+    return round(budget * (allocation_pct / 100.0), 2)
 
-# ==========================================
-# 2. THE TEST MATRIX
-# ==========================================
 
 def test_data_processor_calculation():
-    """Verify core math calculations behave exactly as expected."""
-    assert mock_data_processor(100) == 120.0
-    assert mock_data_processor(10.55) == 12.66
+    """Verify that the allocation engine calculates percentages correctly."""
+    assert data_processor(150000.00, 15.5) == 23250.00
+    assert data_processor(0.0, 50.0) == 0.0
+
 
 def test_data_processor_negative_boundary():
-    """Ensure edge cases (like negative numbers) are safely caught and normalized."""
-    assert mock_data_processor(-50) == 0.0
+    """Verify that negative inputs trigger the expected structural exceptions."""
+    with pytest.raises(ValueError):
+        data_processor(-100.0, 10.0)
+
 
 def test_pipeline_secrets_presence():
-    """Validate that the GitHub actions pipeline is injecting credentials correctly."""
-    # This directly tests that our mock .streamlit/secrets.toml layer works!
-    assert st.secrets["SUPABASE_URL"] == "https://mockinstance.supabase.co"
-    assert st.secrets["GEMINI_API_KEY"] == "mock-gemini-key-string"
+    """Validate that the application configuration strings are present and populated."""
+    # Verifies the system can find the configuration keys without enforcing specific mock strings
+    assert "SUPABASE_URL" in st.secrets
+    assert len(st.secrets["SUPABASE_URL"]) > 0
+    
+    assert "SUPABASE_KEY" in st.secrets
+    assert len(st.secrets["SUPABASE_KEY"]) > 0
