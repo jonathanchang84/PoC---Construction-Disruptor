@@ -1,4 +1,3 @@
-cat << 'EOF' > .github/workflows/python-app.yml
 name: Python Code Verification Suite
 
 on:
@@ -50,4 +49,3 @@ jobs:
     - name: Run pytest validation matrix
       run: |
         python -m pytest tests/ --verbose
-EOF
