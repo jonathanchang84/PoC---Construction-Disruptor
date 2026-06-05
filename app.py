@@ -4,6 +4,7 @@ import plotly.express as px
 from supabase import create_client, Client
 import json
 import re
+import datetime
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
@@ -103,7 +104,6 @@ else:
     st.sidebar.success(f"Active Session: **{st.session_state['customer_id']}**")
     st.sidebar.title("Navigation")
     
-    # Updated label here to "📋 Order Overview"
     view_options = ["👤 Customer Portal", "📊 My Orders & Analytics", "📋 Order Overview"]
     
     current_idx = 0
@@ -135,6 +135,20 @@ def format_items_payload_html(payload_string):
         return "<br>".join(formatted_lines)
     except Exception:
         return str(payload_string)
+
+# --- Helper Function to Render Styled Status Pills ---
+def render_status_pill_html(status_string):
+    status = str(status_string).strip()
+    if status == "Order Placed":
+        return f'<span style="background-color: #e1f5fe; color: #0288d1; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; border: 1px solid #b3e5fc;">📋 {status}</span>'
+    elif status == "Processing":
+        return f'<span style="background-color: #fff8e1; color: #f57f17; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; border: 1px solid #ffe082;">⚙️ {status}</span>'
+    elif status == "On its way":
+        return f'<span style="background-color: #e8f5e9; color: #388e3c; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; border: 1px solid #c8e6c9;">🚚 {status}</span>'
+    elif status == "Delivered":
+        return f'<span style="background-color: #ede7f6; color: #5e35b1; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; border: 1px solid #d1c4e9;">✅ {status}</span>'
+    else:
+        return f'<span style="background-color: #f5f5f5; color: #616161; padding: 4px 10px; border-radius: 12px; font-size: 13px;">{status}</span>'
 
 # --- 5. Application Routing Views ---
 if not st.session_state["customer_id"]:
@@ -295,15 +309,29 @@ else:
             if st.button("Confirm and Route Order"):
                 if supabase:
                     try:
-                        data, count = supabase.table("order_logs").insert({
+                        # Fetch maximum order number currently in table to increment sequence safely
+                        max_seq_check = supabase.table("order_logs_scd").select("order_no").order("order_no", desc=True).limit(1).execute()
+                        next_order_no = 1001
+                        if max_seq_check.data and len(max_seq_check.data) > 0:
+                            next_order_no = int(max_seq_check.data[0]["order_no"]) + 1
+                        
+                        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                        
+                        # SCD TYPE 2 FIRST LOG SUBMISSION
+                        supabase.table("order_logs_scd").insert({
+                            "order_no": next_order_no,
                             "customer_id": st.session_state["customer_id"],
                             "supplier": best_deal["supplier"],
                             "total_cost": float(best_deal["total_cost"]),
                             "delivery_date": best_deal["delivery_date"],
-                            "metadata_payload": best_deal["metadata_payload"]
+                            "metadata_payload": best_deal["metadata_payload"],
+                            "status": "Order Placed",
+                            "valid_from": now_iso,
+                            "is_current": True,
+                            "modified_by": st.session_state["customer_id"]
                         }).execute()
                         
-                        st.success("✅ Order successfully committed!")
+                        st.success(f"✅ Order #{next_order_no} successfully committed to transaction logs!")
                         del st.session_state['pending_order']
                         st.balloons()
                         
@@ -311,44 +339,49 @@ else:
                         st.rerun()
                             
                     except Exception as db_err:
-                        st.error(f"Failed to log record via Supabase API: {db_err}")
+                        st.error(f"Failed to log SCD row record via Supabase API: {db_err}")
                 else:
                     st.error("Supabase API Client uninitialized.")
 
     # -------------------------------------------------------------
-    # VIEW B: USER SPECIFIC ORDERS & ANALYTICS
+    # VIEW B: USER SPECIFIC ORDERS & ANALYTICS (Filtered by is_current)
     # -------------------------------------------------------------
     elif st.session_state["current_view"] == "📊 My Orders & Analytics":
         st.title("📊 Personal Procurement Dashboard")
-        st.markdown(f"Displaying historical procurement flows and analytics exclusively for: **{st.session_state['customer_id']}**")
+        st.markdown(f"Displaying active historical procurement fields exclusively for: **{st.session_state['customer_id']}**")
         
         analytics_loaded = False
         if supabase:
             try:
-                response = supabase.table("order_logs").select("*").eq("customer_id", st.session_state["customer_id"]).order("created_at", desc=True).execute()
+                # CRITICAL SCD TYPE 2 FIX: Filter condition checks for only is_current = True records
+                response = supabase.table("order_logs_scd").select("*").eq("customer_id", st.session_state["customer_id"]).eq("is_current", True).order("valid_from", desc=True).execute()
                 
                 if response.data and len(response.data) > 0:
                     df_analytics = pd.DataFrame(response.data)
-                    df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
+                    df_analytics["created_at"] = pd.to_datetime(df_analytics["valid_from"])
                     analytics_loaded = True
                 else:
-                    st.info("ℹ️ No historical orders found.")
+                    st.info("ℹ️ No historical active orders found inside log tables.")
             except Exception as err:
                 st.sidebar.error(f"Failed to pull active stream: {err}")
                 
         if not analytics_loaded:
             st.markdown("### Prototype Template Preview")
             df_analytics = pd.DataFrame([
-                {"id": 1001, "created_at": "2026-06-04 12:00:00", "supplier": "Supplier Alpha", "total_cost": 0.0, "delivery_date": "2026-06-12", "customer_id": st.session_state["customer_id"], "metadata_payload": "{}"}
+                {"order_no": 1001, "valid_from": "2026-06-04T12:00:00Z", "supplier": "Supplier Alpha", "total_cost": 0.0, "delivery_date": "2026-06-12", "customer_id": st.session_state["customer_id"], "metadata_payload": "{}", "status": "Order Placed"}
             ])
-            df_analytics["created_at"] = pd.to_datetime(df_analytics["created_at"])
+            df_analytics["created_at"] = pd.to_datetime(df_analytics["valid_from"])
 
         # --- DATA CLEANING LAYER ---
         df_analytics["Items"] = df_analytics["metadata_payload"].apply(format_items_payload_html)
         df_analytics["Order Date"] = df_analytics["created_at"].dt.strftime("%d %b %Y, %H:%M")
         
+        if "status" not in df_analytics.columns:
+            df_analytics["status"] = "Order Placed"
+        df_analytics["Tracking Status"] = df_analytics["status"].apply(render_status_pill_html)
+        
         df_analytics = df_analytics.rename(columns={
-            "id": "Order No.",
+            "order_no": "Order No.",
             "supplier": "Allocated Supplier",
             "total_cost": "Total Spend",
             "delivery_date": "Est. Delivery Date"
@@ -389,7 +422,8 @@ else:
                 "Allocated Supplier", 
                 "Items", 
                 "Total Spend", 
-                "Est. Delivery Date"
+                "Est. Delivery Date",
+                "Tracking Status"
             ]
             
             df_display = df_analytics[display_cols].copy()
@@ -429,15 +463,16 @@ else:
             st.markdown(html_table, unsafe_allow_html=True)
 
     # -------------------------------------------------------------
-    # VIEW C: ORDER OVERVIEW INTERFACE (RELABELED)
+    # VIEW C: ORDER OVERVIEW INTERFACE (SCD Type 2 Administration Center)
     # -------------------------------------------------------------
     elif st.session_state["current_view"] == "📋 Order Overview":
         st.title("📋 Master Order Overview")
-        st.markdown("Global administration platform matrix for managing transactions, fulfillment pipelines, and monitoring cross-tenant supply workflows.")
+        st.markdown("Global administration platform matrix displaying currently active pipeline states across all ecosystem network tenants.")
         
         if supabase:
             try:
-                global_query = supabase.table("order_logs").select("*").order("created_at", desc=True).execute()
+                # Pull current active rows for the master view matrix
+                global_query = supabase.table("order_logs_scd").select("*").eq("is_current", True).order("valid_from", desc=True).execute()
                 
                 if global_query.data:
                     df_global = pd.DataFrame(global_query.data)
@@ -450,16 +485,64 @@ else:
                     st.write("---")
                     st.subheader("Global Order Fulfillment Audit Stream")
                     
+                    if "status" not in df_global.columns:
+                        df_global["status"] = "Order Placed"
+                    df_global["Status Tracker"] = df_global["status"].apply(render_status_pill_html)
+                    
                     df_global["Items Requested"] = df_global["metadata_payload"].apply(format_items_payload_html)
-                    df_global["Timestamp"] = pd.to_datetime(df_global["created_at"]).dt.strftime("%Y-%m-%d %H:%M")
+                    df_global["Timestamp"] = pd.to_datetime(df_global["valid_from"]).dt.strftime("%Y-%m-%d %H:%M")
                     
-                    admin_display_cols = ["id", "Timestamp", "customer_id", "supplier", "Items Requested", "total_cost", "delivery_date"]
+                    admin_display_cols = ["order_no", "Timestamp", "customer_id", "supplier", "Items Requested", "total_cost", "delivery_date", "Status Tracker", "modified_by"]
                     df_admin_view = df_global[admin_display_cols].copy()
-                    df_admin_view.columns = ["Order ID", "Timestamp", "Client ID", "Fulfillment Supplier", "Items Extracted", "Total Valuation", "Est Delivery Target"]
+                    df_admin_view.columns = ["Order No", "Last Updated", "Client ID", "Fulfillment Supplier", "Items Extracted", "Total Valuation", "Est Delivery Target", "Current Status", "Last Modified By"]
                     
-                    st.dataframe(df_admin_view, use_container_width=True, hide_index=True)
+                    st.markdown(
+                        df_admin_view.to_html(index=False, escape=False, classes="custom-ledger-table"), 
+                        unsafe_allow_html=True
+                    )
+                    
+                    # Administration interactive state engine modifier block
+                    st.write("---")
+                    st.subheader("🛠️ Operations Fulfillment Control (SCD Type 2 Audit Logging)")
+                    st.markdown("Modifying a lifecycle state will expire the active record and insert a fresh historical audit row entry tracking timestamp and execution user details.")
+                    
+                    col_adm1, col_adm2, col_adm3 = st.columns(3)
+                    
+                    target_order_no = col_adm1.selectbox("Select Target Order No:", options=df_global["order_no"].unique().tolist())
+                    target_new_status = col_adm2.selectbox("Set Next Lifecycle State:", options=["Order Placed", "Processing", "On its way", "Delivered"])
+                    
+                    if col_adm3.button("Execute Status Update", type="primary", use_container_width=True):
+                        try:
+                            # Pull active record object values to mirror data down into fresh insert target line row matching keys
+                            active_record = df_global[df_global["order_no"] == target_order_no].iloc[0]
+                            now_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                            
+                            # STEP A: Terminate/expire current visibility tracking parameters flag state links
+                            supabase.table("order_logs_scd").update({
+                                "is_current": False,
+                                "valid_to": now_timestamp
+                            }).eq("order_no", int(target_order_no)).eq("is_current", True).execute()
+                            
+                            # STEP B: Insert updated status entry preserving parent configuration mapping bounds keys
+                            supabase.table("order_logs_scd").insert({
+                                "order_no": int(target_order_no),
+                                "customer_id": str(active_record["customer_id"]),
+                                "supplier": str(active_record["supplier"]),
+                                "total_cost": float(active_record["total_cost"]),
+                                "delivery_date": str(active_record["delivery_date"]),
+                                "metadata_payload": str(active_record["metadata_payload"]),
+                                "status": target_new_status,
+                                "valid_from": now_timestamp,
+                                "is_current": True,
+                                "modified_by": st.session_state["customer_id"] # Records active session actor identity string
+                            }).execute()
+                            
+                            st.success(f"🎉 Order #{target_order_no} migrated to state '{target_new_status}'! History log entry committed.")
+                            st.rerun()
+                        except Exception as update_err:
+                            st.error(f"Failed to execute SCD Type 2 transaction update: {update_err}")
                 else:
-                    st.info("No system transaction histories logs present in Supabase order_logs.")
+                    st.info("No system transaction histories logs present in Supabase order_logs_scd.")
             except Exception as e:
                 st.error(f"Failed to extract global metrics logs from Supabase connection: {e}")
         else:
