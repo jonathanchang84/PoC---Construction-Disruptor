@@ -35,21 +35,6 @@ The system architecture follows a unidirectional data flow to ensure fast load t
 
 5.  **Native Rendering Engine:** The presentation layer processes the updated metrics and feeds them dynamically into native UI nodes (`st.metric` and `st.dataframe`), perfectly optimizing for both light and dark mode browsers securely.
 
-### 🗺️ System Topology
-
-```text
- [ User Browser ] 
-        │
-        ▼ (Interactions: Swaps / Inputs)
- [ Streamlit Interface UI ] ──(Reads State)──► [ Session State Machine ]
-        │                                               │
-        ▼ (If Cache Expired / 30m)                     ▼ (Triggers)
- [ Memory Cache Logic ] ◄───────────────────────── [ Math Engine ]
-        │                                        (Triangular Conversion)
-        ▼ 
- [ Live Exchange Rate API ]
-###
-
 
 ## Testing Framework
 
@@ -98,3 +83,17 @@ These tests conduct live end-to-end handshakes with external dependencies to ens
     * **Credential Validation:** It ensures that this configuration environment has successfully mapped a real, live Google Gemini API key token string to the application layer.
     * **Production Environment Safeties:** It explicitly scans the credentials to ensure no `"mock-"` or dummy sandbox placeholder strings accidentally leaked into this production run. This guards against a cloud pipeline passing its checks while using fake data that would immediately crash the live app for a real user.
     * **API Routing Security:** It guarantees that the moment this application needs to route user inputs or prompt parameters out to Google's model engines, the authorization gate will slide open flawlessly.
+
+### 🗺️ System Topology
+
+```text
+ [ User Browser ] 
+        │
+        ▼ (Interactions: Swaps / Inputs)
+ [ Streamlit Interface UI ] ──(Reads State)──► [ Session State Machine ]
+        │                                               │
+        ▼ (If Cache Expired / 30m)                     ▼ (Triggers)
+ [ Memory Cache Logic ] ◄───────────────────────── [ Math Engine ]
+        │                                        (Triangular Conversion)
+        ▼ 
+ [ Live Exchange Rate API ]
