@@ -46,12 +46,11 @@ jobs:
         pip install pytest pytest-mock
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    # FIXED: Gracefully falls back if the tests directory is missing
     - name: Run pytest validation matrix
       run: |
         if [ -d tests ]; then
           echo "🚀 Found 'tests/' directory. Executing test suite..."
           python -m pytest tests/ --verbose
         else
-          echo "⚠️ No 'tests/' directory found in workspace. Skipping testing matrix without crashing."
+          echo "⚠️ No 'tests/' directory found in workspace. Skipping testing matrix cleanly."
         fi
