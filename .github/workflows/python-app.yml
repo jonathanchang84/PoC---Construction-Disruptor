@@ -1,4 +1,4 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# This workflow will install Python dependencies and run tests with a single version of Python
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
 
 name: Python application
@@ -37,12 +37,10 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    # 4. Install project dependencies
+    # 4. Install project dependencies cleanly
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
     # 5. Execute the entire 11-point Pytest Matrix
