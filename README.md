@@ -43,3 +43,15 @@ Applications often use regular expressions (Regex) to ensure user inputs are cle
 Streamlit dynamically paints components onto the screen as code executes sequentially from top to bottom. If a logic branch (if/else statement) breaks, an entire section of your website can completely vanish.
 •	What it checked: It ran your actual app.py script headlessly and verified that vital user-interaction components (like your text entry fields) are present and accounted for on startup.
 •	Why this prevents a regression: It guarantees that optimizing your backend code hasn't accidentally caused a catastrophic frontend UI regression, ensuring your users will always see the fields they need to interact with the app.
+
+**Automated Integration Tests**
+1. The Database Handshake (test_live_supabase_connection_and_crud)
+Because your application relies on Supabase to store and retrieve data, this test acts as a smoke signal to ensure your application can talk to your database server at any given moment.
+•	Network & DNS Routing: It verifies that your local computer (or GitHub's cloud computer) can successfully find your specific database instance across the internet (https://xydkpbmmwvxfftvsecuy.supabase.co).
+•	Authentication & Permissions: It passes your SUPABASE_KEY token to verify that the database server accepts your security clearance and doesn't reject the app with an HTTP 401 Unauthorized or 403 Forbidden error.
+•	Schema Integrity & State Check: By intentionally pinging the backend, it confirms that the database engine is online, actively listening, and returning structural responses (like the PGRST205 schema cache signal), proving that the database connection is 100% operational.
+2. The AI Engine Handshake (test_live_gemini_api_handshake)
+This test protects your application from broken user features caused by expired API keys or altered backend configurations.
+•	Credential Validation: It ensures that your hidden configuration environment has successfully mapped a real, live Google Gemini API key token string to the application layer.
+•	Production Environment Safeties: It explicitly scans the credentials to ensure no "mock-" or dummy sandbox placeholder strings accidentally leaked into your production run. This guards against your cloud pipeline passing its checks while using fake data that would immediately crash the live app for a real user.
+•	API Routing Security: It guarantees that the moment your application needs to route user inputs or prompt parameters out to Google's model engines, the authorization gate will slide open flawlessly.
