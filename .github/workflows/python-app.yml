@@ -37,10 +37,11 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    # 4. Install project dependencies cleanly
+    # 4. Install project dependencies and force-inject testing requirements
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        python -m pip install pytest pytest-mock supabase streamlit
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
     # 5. Execute the entire 11-point Pytest Matrix
