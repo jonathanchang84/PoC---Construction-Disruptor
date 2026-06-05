@@ -48,16 +48,14 @@ class ProcurementIntent(BaseModel):
 # --- 4. Identity & Authentication Layer ---
 st.sidebar.title("🔐 Access Control")
 
-# Initialize persistent tracking keys if absent
 if "user_id" not in st.session_state:
     st.session_state["user_id"] = None
 if "user_role" not in st.session_state:
-    st.session_state["user_role"] = None  # Tracks 'customer' vs 'operations'
+    st.session_state["user_role"] = None  
 if "current_view" not in st.session_state:
     st.session_state["current_view"] = None
 
 if not st.session_state["user_id"]:
-    # Dual-profile entry gateway
     login_profile = st.sidebar.radio("Select Portal Profile:", ["👤 Client Partner", "⚙️ Internal Operations"])
     
     if login_profile == "👤 Client Partner":
@@ -116,7 +114,6 @@ if not st.session_state["user_id"]:
                 st.sidebar.error("Please input an authorized Operator ID.")
             elif supabase:
                 try:
-                    # SECURE VERIFICATION STEP: Querying our new operations database registry table
                     ops_check = supabase.table("operations_team").select("*").eq("operator_id", ops_user_id).execute()
                     
                     if ops_check.data and len(ops_check.data) > 0:
@@ -124,7 +121,6 @@ if not st.session_state["user_id"]:
                         st.session_state["user_id"] = ops_user_id
                         st.session_state["user_role"] = "operations"
                         st.session_state["current_view"] = "📋 Order Overview"
-                        st.sidebar.success(f"Welcome back, {operator_data['operator_name']}!")
                         st.rerun()
                     else:
                         st.sidebar.error("❌ Access Denied: Unrecognized Operator Badge ID.")
@@ -133,7 +129,6 @@ if not st.session_state["user_id"]:
             else:
                 st.sidebar.error("Database layer disconnected. Cannot verify operator badge.")
 else:
-    # --- Authenticated User Layout Customization Matrix ---
     st.sidebar.success(f"Session: **{st.session_state['user_id']}** ({st.session_state['user_role'].upper()})")
     st.sidebar.title("Navigation")
     
@@ -176,7 +171,7 @@ def format_items_payload_html(payload_string):
 # --- Helper Function to Render Styled Status Pills ---
 def render_status_pill_html(status_string):
     status = str(status_string).strip()
-    if status == "Order Placed":
+    if status in ["Order Placed", "Ordered"]:
         return f'<span style="background-color: #e1f5fe; color: #0288d1; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; border: 1px solid #b3e5fc;">📋 {status}</span>'
     elif status == "Processing":
         return f'<span style="background-color: #fff8e1; color: #f57f17; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; border: 1px solid #ffe082;">⚙️ {status}</span>'
@@ -184,6 +179,8 @@ def render_status_pill_html(status_string):
         return f'<span style="background-color: #e8f5e9; color: #388e3c; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; border: 1px solid #c8e6c9;">🚚 {status}</span>'
     elif status == "Delivered":
         return f'<span style="background-color: #ede7f6; color: #5e35b1; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; border: 1px solid #d1c4e9;">✅ {status}</span>'
+    elif status == "Cancelled":
+        return f'<span style="background-color: #ffebee; color: #c62828; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; border: 1px solid #ffcdd2;">❌ {status}</span>'
     else:
         return f'<span style="background-color: #f5f5f5; color: #616161; padding: 4px 10px; border-radius: 12px; font-size: 13px;">{status}</span>'
 
@@ -351,18 +348,21 @@ else:
                         st.error(f"Failed to submit log row: {db_err}")
 
     # -------------------------------------------------------------
-    # VIEW B: CUSTOMER SPECIFIC ORDERS & ANALYTICS
+    # VIEW B: CUSTOMER SPECIFIC ORDERS & ANALYTICS (Cancellation Allowed Here)
     # -------------------------------------------------------------
     elif st.session_state["current_view"] == "📊 My Orders & Analytics":
         st.title("📊 Personal Procurement Dashboard")
         st.markdown(f"Displaying historical procurement flows for tenant: **{st.session_state['user_id']}**")
         
         analytics_loaded = False
+        df_raw_backup = None # Local reference for processing cancellations
+        
         if supabase:
             try:
                 response = supabase.table("order_logs_scd").select("*").eq("customer_id", st.session_state["user_id"]).eq("is_current", True).order("valid_from", desc=True).execute()
                 if response.data and len(response.data) > 0:
-                    df_analytics = pd.DataFrame(response.data)
+                    df_raw_backup = pd.DataFrame(response.data)
+                    df_analytics = df_raw_backup.copy()
                     df_analytics["created_at"] = pd.to_datetime(df_analytics["valid_from"])
                     analytics_loaded = True
                 else:
@@ -380,17 +380,17 @@ else:
         df_analytics["Order Date"] = df_analytics["created_at"].dt.strftime("%d %b %Y, %H:%M")
         df_analytics["Tracking Status"] = df_analytics["status"].apply(render_status_pill_html)
         
-        df_analytics = df_analytics.rename(columns={"order_no": "Order No.", "supplier": "Allocated Supplier", "total_cost": "Total Spend", "delivery_date": "Est. Delivery Date"})
+        df_analytics_renamed = df_analytics.rename(columns={"order_no": "Order No.", "supplier": "Allocated Supplier", "total_cost": "Total Spend", "delivery_date": "Est. Delivery Date"})
 
         if analytics_loaded:
             col1, col2 = st.columns(2)
             with col1:
-                st.plotly_chart(px.line(df_analytics, x="Order Date", y="Total Spend", color="Allocated Supplier", title="Order Spend Velocity", markers=True), use_container_width=True)
+                st.plotly_chart(px.line(df_analytics_renamed, x="Order Date", y="Total Spend", color="Allocated Supplier", title="Order Spend Velocity", markers=True), use_container_width=True)
             with col2:
-                st.plotly_chart(px.pie(df_analytics, names="Allocated Supplier", values="Total Spend", title="Vendor Share Allocation"), use_container_width=True)
+                st.plotly_chart(px.pie(df_analytics_renamed, names="Allocated Supplier", values="Total Spend", title="Vendor Share Allocation"), use_container_width=True)
 
             st.subheader("Your Order History Ledger")
-            df_display = df_analytics[["Order No.", "Order Date", "Allocated Supplier", "Items", "Total Spend", "Est. Delivery Date", "Tracking Status"]].copy()
+            df_display = df_analytics_renamed[["Order No.", "Order Date", "Allocated Supplier", "Items", "Total Spend", "Est. Delivery Date", "Tracking Status"]].copy()
             df_display["Total Spend"] = df_display["Total Spend"].apply(lambda x: f"£{x:,.2f}" if isinstance(x, (int, float)) else x)
             
             st.markdown(
@@ -403,6 +403,52 @@ else:
                 """, unsafe_allow_html=True
             )
             st.markdown(df_display.to_html(index=False, escape=False, classes="custom-ledger-table"), unsafe_allow_html=True)
+
+            # --- DYNAMIC CANCELLATION ENGINE CONTROL BLOCK ---
+            st.write("---")
+            st.subheader("🛠️ Order Management Actions")
+            
+            # Filter for orders that are currently in 'Order Placed', 'Ordered', or 'Processing' state
+            cancel_eligible_states = ["Order Placed", "Ordered", "Processing"]
+            df_eligible = df_raw_backup[df_raw_backup["status"].isin(cancel_eligible_states)]
+            
+            if not df_eligible.empty:
+                st.markdown("You can cancel active items if they haven't been picked up or dispatched yet (Only allowed for *Order Placed* or *Processing* pipelines).")
+                
+                col_c1, col_c2 = st.columns([2, 1])
+                target_cancel_no = col_c1.selectbox("Select Active Order to Cancel:", options=df_eligible["order_no"].tolist(), format_func=lambda x: f"Order #{x}")
+                
+                if col_c2.button("❌ Request Order Cancellation", type="secondary", use_container_width=True):
+                    try:
+                        active_cancel_rec = df_eligible[df_eligible["order_no"] == target_cancel_no].iloc[0]
+                        now_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                        
+                        # STEP A: Expire the currently live visible state row
+                        supabase.table("order_logs_scd").update({
+                            "is_current": False,
+                            "valid_to": now_timestamp
+                        }).eq("order_no", int(target_cancel_no)).eq("is_current", True).execute()
+                        
+                        # STEP B: Insert the completely new status row entry mapping structural history lines
+                        supabase.table("order_logs_scd").insert({
+                            "order_no": int(target_cancel_no),
+                            "customer_id": str(active_cancel_rec["customer_id"]),
+                            "supplier": str(active_cancel_rec["supplier"]),
+                            "total_cost": float(active_cancel_rec["total_cost"]),
+                            "delivery_date": str(active_cancel_rec["delivery_date"]),
+                            "metadata_payload": str(active_cancel_rec["metadata_payload"]),
+                            "status": "Cancelled",
+                            "valid_from": now_timestamp,
+                            "is_current": True,
+                            "modified_by": st.session_state["user_id"] # Saved context user string identity
+                        }).execute()
+                        
+                        st.success(f"🎉 Order #{target_cancel_no} successfully cancelled. Historical ledger balances updated.")
+                        st.rerun()
+                    except Exception as cancel_err:
+                        st.error(f"Failed to submit cancellation sequence: {cancel_err}")
+            else:
+                st.info("ℹ️ You have no active orders eligible for cancellation at this stage.")
 
     # -------------------------------------------------------------
     # VIEW C: ORDER OVERVIEW INTERFACE (Internal Operations Hub)
@@ -443,7 +489,7 @@ else:
                     
                     col_adm1, col_adm2, col_adm3 = st.columns(3)
                     target_order_no = col_adm1.selectbox("Select Target Order No:", options=df_global["order_no"].unique().tolist())
-                    target_new_status = col_adm2.selectbox("Set Next Lifecycle State:", options=["Order Placed", "Processing", "On its way", "Delivered"])
+                    target_new_status = col_adm2.selectbox("Set Next Lifecycle State:", options=["Order Placed", "Processing", "On its way", "Delivered", "Cancelled"])
                     
                     if col_adm3.button("Execute Status Update", type="primary", use_container_width=True):
                         try:
@@ -467,7 +513,7 @@ else:
                                 "status": target_new_status,
                                 "valid_from": now_timestamp,
                                 "is_current": True,
-                                "modified_by": st.session_state["user_id"] # Saves active Operator badge ID
+                                "modified_by": st.session_state["user_id"]
                             }).execute()
                             
                             st.success(f"🎉 Order #{target_order_no} migrated to state '{target_new_status}'! Log appended.")
