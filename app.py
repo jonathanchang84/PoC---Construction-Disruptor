@@ -102,11 +102,20 @@ if not st.session_state["customer_id"]:
 else:
     st.sidebar.success(f"Active Session: **{st.session_state['customer_id']}**")
     st.sidebar.title("Navigation")
+    
+    # Restored "⚙️ Operations Console" into the UI configuration map array
+    view_options = ["👤 Customer Portal", "📊 My Orders & Analytics", "⚙️ Operations Console"]
+    
+    # Calculate the safe current index for reruns
+    current_idx = 0
+    if st.session_state["current_view"] in view_options:
+        current_idx = view_options.index(st.session_state["current_view"])
+        
     role = st.sidebar.radio(
         "Select Interface:", 
-        ["👤 Customer Portal", "📊 My Orders & Analytics"],
+        view_options,
         key="navigation_radio",
-        index=0 if st.session_state["current_view"] == "👤 Customer Portal" else 1
+        index=current_idx
     )
     st.session_state["current_view"] = role
 
@@ -133,7 +142,9 @@ if not st.session_state["customer_id"]:
     st.title("📦 Smart Supply Platform")
     st.warning("🔒 Access Restricted. Please log in via the sidebar access panel to manage orders.")
 else:
+    # -------------------------------------------------------------
     # VIEW A: CUSTOMER PORTAL
+    # -------------------------------------------------------------
     if st.session_state["current_view"] == "👤 Customer Portal":
         st.title(f"📦 Smart Procurement Portal")
         st.caption(f"Acting on behalf of tenant: {st.session_state['customer_id']}")
@@ -169,7 +180,6 @@ else:
                 with st.spinner("Invoking Gemini 2.5 Flash Estimation Engine..."):
                     
                     try:
-                        # Fetch current items in system database
                         db_query = supabase.table("supplier_inventory").select("supplier_name, item_name, unit_price").execute()
                         
                         if not db_query.data:
@@ -225,7 +235,6 @@ else:
                         
                         st.info("💡 **Gemini Extraction & Engineering Engine Success:**")
                         
-                        # Output clear metrics and breakdown logs directly to frontend
                         for calc_item in mock_ai_extracted_json["items"]:
                             with st.container():
                                 col_b1, col_b2 = st.columns([1, 4])
@@ -307,7 +316,9 @@ else:
                 else:
                     st.error("Supabase API Client uninitialized.")
 
+    # -------------------------------------------------------------
     # VIEW B: USER SPECIFIC ORDERS & ANALYTICS
+    # -------------------------------------------------------------
     elif st.session_state["current_view"] == "📊 My Orders & Analytics":
         st.title("📊 Personal Procurement Dashboard")
         st.markdown(f"Displaying historical procurement flows and analytics exclusively for: **{st.session_state['customer_id']}**")
@@ -417,3 +428,43 @@ else:
             )
             
             st.markdown(html_table, unsafe_allow_html=True)
+
+    # -------------------------------------------------------------
+    # VIEW C: OPERATIONS CONSOLE (RESTORED)
+    # -------------------------------------------------------------
+    elif st.session_state["current_view"] == "⚙️ Operations Console":
+        st.title("⚙️ Operations Management Center")
+        st.markdown("Global administration cockpit for tracking across all tenants, fulfillment logs, and managing platform supplier states.")
+        
+        if supabase:
+            try:
+                # Retrieve the full global log database table
+                global_query = supabase.table("order_logs").select("*").order("created_at", desc=True).execute()
+                
+                if global_query.data:
+                    df_global = pd.DataFrame(global_query.data)
+                    
+                    # KPIs Metrics row
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Global Gross Routed Volumes", f"£{df_global['total_cost'].sum():,.2f}")
+                    m2.metric("Total Platform Transactions", len(df_global))
+                    m3.metric("Unique Customer Entities Active", df_global['customer_id'].nunique())
+                    
+                    st.write("---")
+                    st.subheader("Global Order Fulfillment Audit Stream")
+                    
+                    # Formatting data elements for raw dataframes outputs
+                    df_global["Items Requested"] = df_global["metadata_payload"].apply(format_items_payload_html)
+                    df_global["Timestamp"] = pd.to_datetime(df_global["created_at"]).dt.strftime("%Y-%m-%d %H:%M")
+                    
+                    admin_display_cols = ["id", "Timestamp", "customer_id", "supplier", "Items Requested", "total_cost", "delivery_date"]
+                    df_admin_view = df_global[admin_display_cols].copy()
+                    df_admin_view.columns = ["Order ID", "Timestamp", "Client ID", "Fulfillment Supplier", "Items Extracted", "Total Valuation", "Est Delivery Target"]
+                    
+                    st.dataframe(df_admin_view, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No system transaction histories logs present in Supabase order_logs.")
+            except Exception as e:
+                st.error(f"Failed to extract global metrics logs from Supabase connection: {e}")
+        else:
+            st.error("Supabase API connection client layer uninitialized.")
