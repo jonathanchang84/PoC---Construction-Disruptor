@@ -38,11 +38,11 @@ jobs:
         pip install pytest pytest-mock
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    # Step 5: Inject mock secrets so Streamlit initialization clauses don't throw KeyErrors
-    - name: Inject Mock Streamlit Secrets
+        # Step 5: Inject mock secrets using absolute workspace paths
+     Tar name: Inject Mock Streamlit Secrets
       run: |
-        mkdir -p .streamlit
-        cp tests/mock_secrets.toml .streamlit/secrets.toml
+        mkdir -p $GITHUB_WORKSPACE/.streamlit
+        cp $GITHUB_WORKSPACE/tests/mock_secrets.toml $GITHUB_WORKSPACE/.streamlit/secrets.toml
 
     # Step 6: Execute the test suite
     - name: Run pytest validation matrix
